@@ -27,7 +27,7 @@ __bodhi_splash_main() {
     local _motd_dir="${BODHI_MOTD_DIR:-/etc/bodhi/motd.d}"
     local _motd_file="${BODHI_MOTD_FILE:-/etc/bodhi/motd}"
     local _help_contact="${BODHI_HELP_CONTACT:-David Farrell}"
-    local _help_email="${BODHI_HELP_EMAIL:-}"
+    local _help_email="${BODHI_HELP_EMAIL:-david.farrell@cuanschutz.edu}"
     local _docs_url="${BODHI_DOCS_URL:-https://rnabioco.github.io/bodhi-docs/}"
 
     # -- Theme detection ---------------------------------------------------
@@ -290,6 +290,13 @@ __bodhi_splash_main() {
         fi
     }
 
+    _bs_interactive_sessions() {
+        _bs_row "${_bold}Interactive Sessions${_rst}"
+        _bs_row "  ${_cyan}sinteractive${_rst}              Launch a persistent session"
+        _bs_row "  ${_cyan}sinteractive --attach JID${_rst} Reconnect to a session"
+        _bs_row "  ${_cyan}sinteractive --list${_rst}       List running sessions"
+    }
+
     _bs_contact_info() {
         local contact="$_help_contact"
         [[ -n "$_help_email" ]] && contact="${contact} <${_help_email}>"
@@ -315,6 +322,8 @@ __bodhi_splash_main() {
     fi
 
     _bs_mid
+    _bs_interactive_sessions
+    _bs_mid
     _bs_contact_info
     _bs_bot
 
@@ -326,7 +335,7 @@ __bodhi_splash_main() {
     unset -f _bs_now_epoch _bs_today_str _bs_last_thursday_epoch
     unset -f _bs_get_next_maintenance _bs_maintenance_banner
     unset -f _bs_has_messages _bs_admin_messages
-    unset -f _bs_header _bs_system_info _bs_contact_info
+    unset -f _bs_header _bs_system_info _bs_interactive_sessions _bs_contact_info
 }
 
 __bodhi_splash_main "$@"
