@@ -1,0 +1,305 @@
+#!/bin/bash
+# bodhi-splash -- Bodhi HPC cluster login splash screen
+#
+# Displays system info, admin messages, contact details, and a
+# color-coded maintenance banner on login.
+#
+# Install system-wide:  cp scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
+# Install per-user:     source this from ~/.bashrc
+#
+# Suppress with: BODHI_NOSPLASH=1, or touch ~/.hushlogin
+
+__bodhi_splash_main() {
+
+    # -- Guards ----------------------------------------------------------
+    [[ $- != *i* ]] && return 0
+    [[ -n "${BODHI_NOSPLASH:-}" ]] && return 0
+    [[ -f "${HOME}/.hushlogin" ]] && return 0
+
+    if [[ -n "${BODHI_SPLASH_HOSTS:-}" ]]; then
+        local _hostname
+        _hostname=$(hostname -s 2>/dev/null)
+        # shellcheck disable=SC2053
+        [[ $_hostname != $BODHI_SPLASH_HOSTS ]] && return 0
+    fi
+
+    # -- Configuration ---------------------------------------------------
+    local _motd_dir="${BODHI_MOTD_DIR:-/etc/bodhi/motd.d}"
+    local _motd_file="${BODHI_MOTD_FILE:-/etc/bodhi/motd}"
+    local _help_contact="${BODHI_HELP_CONTACT:-David Farrell}"
+    local _help_email="${BODHI_HELP_EMAIL:-}"
+    local _docs_url="${BODHI_DOCS_URL:-https://rnabioco.github.io/bodhi-slurm-migration/}"
+
+    # -- Colors (ANSI SGR) -----------------------------------------------
+    local _rst _bold _dim _yellow _cyan
+    local _bg_red _bg_yellow
+    if [[ -t 1 ]]; then
+        _rst=$'\e[0m'
+        _bold=$'\e[1m'
+        _dim=$'\e[2m'
+        _yellow=$'\e[33m'
+        _cyan=$'\e[36m'
+        _bg_red=$'\e[1;97;41m'       # bold white on red
+        _bg_yellow=$'\e[1;30;43m'    # bold black on yellow
+    else
+        _rst='' _bold='' _dim='' _yellow='' _cyan=''
+        _bg_red='' _bg_yellow=''
+    fi
+
+    # -- Box width -------------------------------------------------------
+    local _width=68
+    if command -v tput &>/dev/null && [[ -t 1 ]]; then
+        local _cols
+        _cols=$(tput cols 2>/dev/null)
+        if [[ -n "$_cols" ]] && (( _cols < _width + 4 )); then
+            _width=$(( _cols - 4 ))
+            (( _width < 40 )) && _width=40
+        fi
+    fi
+
+    # -- Box drawing helpers ---------------------------------------------
+    _bs_top() { printf '┌'; printf '─%.0s' $(seq 1 $((_width + 2))); printf '┐\n'; }
+    _bs_mid() { printf '├'; printf '─%.0s' $(seq 1 $((_width + 2))); printf '┤\n'; }
+    _bs_bot() { printf '└'; printf '─%.0s' $(seq 1 $((_width + 2))); printf '┘\n'; }
+
+    _bs_row() {
+        local text="$1" color="${2:-}"
+        # Strip ANSI codes for length calculation
+        local plain
+        plain=$(printf '%s' "$text" | sed 's/\x1b\[[0-9;]*m//g')
+        local pad=$(( _width - ${#plain} ))
+        (( pad < 0 )) && pad=0
+        if [[ -n "$color" ]]; then
+            printf '│%s %s%*s %s│\n' "$color" "$text" "$pad" "" "$_rst"
+        else
+            printf '│ %s%*s │\n' "$text" "$pad" ""
+        fi
+    }
+
+    _bs_row_colored_full() {
+        # Full-width colored row (for maintenance banner)
+        local text="$1" color="$2"
+        local plain
+        plain=$(printf '%s' "$text" | sed 's/\x1b\[[0-9;]*m//g')
+        local pad=$(( _width - ${#plain} ))
+        (( pad < 0 )) && pad=0
+        printf '│%s %s%*s %s│\n' "$color" "$text" "$pad" "" "$_rst"
+    }
+
+    # -- Date helpers ----------------------------------------------------
+    _bs_now_epoch() {
+        if [[ -n "${_BODHI_DEBUG_DATE:-}" ]]; then
+            echo "$_BODHI_DEBUG_DATE"
+        else
+            date +%s
+        fi
+    }
+
+    _bs_today_str() {
+        if [[ -n "${_BODHI_DEBUG_DATE:-}" ]]; then
+            date -d "@${_BODHI_DEBUG_DATE}" +%Y-%m-%d
+        else
+            date +%Y-%m-%d
+        fi
+    }
+
+    _bs_last_thursday_epoch() {
+        local y=$1 m=$2
+        local last_day_date dow day offset target_day
+        last_day_date=$(date -d "${y}-${m}-01 +1 month -1 day" +%Y-%m-%d)
+        dow=$(date -d "$last_day_date" +%u)   # 1=Mon .. 7=Sun; Thursday=4
+        day=$(date -d "$last_day_date" +%d)
+        offset=$(( (dow - 4 + 7) % 7 ))
+        target_day=$(( 10#$day - offset ))
+        date -d "${y}-${m}-${target_day}" +%s
+    }
+
+    _bs_get_next_maintenance() {
+        local today_str today_epoch year month maint_epoch
+        today_str=$(_bs_today_str)
+        today_epoch=$(date -d "$today_str" +%s)
+        year=$(date -d "$today_str" +%Y)
+        month=$(date -d "$today_str" +%m)
+
+        maint_epoch=$(_bs_last_thursday_epoch "$year" "$month")
+
+        # If this month's last Thursday is already past, check next month
+        if (( maint_epoch < today_epoch )); then
+            local next_first
+            next_first=$(date -d "${year}-${month}-01 +1 month" +%Y-%m)
+            year="${next_first%-*}"
+            month="${next_first#*-}"
+            maint_epoch=$(_bs_last_thursday_epoch "$year" "$month")
+        fi
+
+        echo "$maint_epoch"
+    }
+
+    # -- Sections --------------------------------------------------------
+
+    _bs_maintenance_banner() {
+        local maint_epoch today_epoch days_until maint_date_str
+        maint_epoch=$(_bs_get_next_maintenance)
+        today_epoch=$(date -d "$(_bs_today_str)" +%s)
+        days_until=$(( (maint_epoch - today_epoch) / 86400 ))
+        maint_date_str=$(date -d "@${maint_epoch}" "+%A, %B %-d, %Y")
+
+        if (( days_until <= 0 )); then
+            _bs_top
+            _bs_row_colored_full "MAINTENANCE TODAY: ${maint_date_str}" "$_bg_red"
+            _bs_row_colored_full "The cluster will be unavailable. Save your work." "$_bg_red"
+        elif (( days_until <= 1 )); then
+            _bs_top
+            _bs_row_colored_full "MAINTENANCE TOMORROW: ${maint_date_str}" "$_bg_red"
+            _bs_row_colored_full "The cluster will be unavailable. Plan accordingly." "$_bg_red"
+        elif (( days_until <= 5 )); then
+            _bs_top
+            _bs_row_colored_full "UPCOMING MAINTENANCE: ${maint_date_str}" "$_bg_yellow"
+            _bs_row_colored_full "Scheduled maintenance in ${days_until} days. Plan accordingly." "$_bg_yellow"
+        else
+            _bs_top
+            return 1  # signal: no banner, top already printed
+        fi
+        return 0  # signal: banner was printed
+    }
+
+    _bs_header() {
+        local host
+        host=$(hostname -s 2>/dev/null || echo "unknown")
+        _bs_row "${_bold}BODHI HPC Cluster${_rst}                          ${_dim}${host}${_rst}"
+    }
+
+    _bs_system_info() {
+        # OS name
+        local os="unknown"
+        if [[ -f /etc/os-release ]]; then
+            os=$(. /etc/os-release && echo "${NAME} ${VERSION_ID}")
+        fi
+
+        # Kernel
+        local kernel
+        kernel=$(uname -r)
+
+        # Uptime (human-readable, trimmed)
+        local up
+        up=$(uptime -p 2>/dev/null | sed 's/^up //')
+        [[ -z "$up" ]] && up=$(uptime | sed 's/.*up *//' | sed 's/,.*load.*//')
+
+        # Load averages
+        local load
+        load=$(uptime | sed 's/.*load average: *//')
+
+        _bs_row "${_dim}OS:${_rst}       ${os}"
+        _bs_row "${_dim}Kernel:${_rst}   ${kernel}"
+        _bs_row "${_dim}Uptime:${_rst}   ${up}"
+        _bs_row "${_dim}Load:${_rst}     ${load}"
+    }
+
+    _bs_has_messages() {
+        # Check if any admin messages exist without printing
+        if [[ -d "$_motd_dir" ]]; then
+            local f
+            for f in "$_motd_dir"/*; do
+                [[ -f "$f" ]] || continue
+                [[ "$f" == *.bak || "$f" == *~ ]] && continue
+                [[ "$(basename "$f")" == .* ]] && continue
+                [[ -s "$f" ]] && return 0
+            done
+        fi
+        [[ -f "$_motd_file" ]] && [[ -s "$_motd_file" ]] && return 0
+        return 1
+    }
+
+    _bs_admin_messages() {
+        local total_lines=0 max_per_file=20 max_total=50
+        local found=0
+
+        # Try directory first
+        if [[ -d "$_motd_dir" ]]; then
+            local f
+            for f in "$_motd_dir"/*; do
+                [[ -f "$f" ]] || continue
+                [[ "$f" == *.bak || "$f" == *~ ]] && continue
+                [[ "$(basename "$f")" == .* ]] && continue
+                [[ -s "$f" ]] || continue
+
+                (( found++ ))
+                local line_count=0
+                while IFS= read -r line; do
+                    (( total_lines >= max_total )) && break 2
+                    (( line_count >= max_per_file )) && {
+                        _bs_row "     ${_dim}... (truncated)${_rst}"
+                        (( total_lines++ ))
+                        break
+                    }
+                    if (( line_count == 0 )); then
+                        _bs_row "${_yellow}>>>${_rst} ${_bold}${line}${_rst}"
+                    else
+                        _bs_row "    ${line}"
+                    fi
+                    (( line_count++ ))
+                    (( total_lines++ ))
+                done < "$f"
+            done
+        fi
+
+        # Fallback to single file
+        if (( found == 0 )) && [[ -f "$_motd_file" ]] && [[ -s "$_motd_file" ]]; then
+            local line_count=0
+            while IFS= read -r line; do
+                (( total_lines >= max_total )) && break
+                (( line_count >= max_per_file )) && {
+                    _bs_row "     ${_dim}... (truncated)${_rst}"
+                    break
+                }
+                if (( line_count == 0 )); then
+                    _bs_row "${_yellow}>>>${_rst} ${_bold}${line}${_rst}"
+                else
+                    _bs_row "    ${line}"
+                fi
+                (( line_count++ ))
+                (( total_lines++ ))
+            done < "$_motd_file"
+        fi
+    }
+
+    _bs_contact_info() {
+        local contact="$_help_contact"
+        [[ -n "$_help_email" ]] && contact="${contact} <${_help_email}>"
+        _bs_row "${_dim}Help:${_rst}  ${contact}"
+        _bs_row "${_dim}Docs:${_rst}  ${_cyan}${_docs_url}${_rst}"
+    }
+
+    # -- Main output -----------------------------------------------------
+    printf '\n'
+
+    # Maintenance banner + top border (banner prints _bs_top itself)
+    if _bs_maintenance_banner; then
+        _bs_mid
+    fi
+
+    _bs_header
+    _bs_mid
+    _bs_system_info
+
+    if _bs_has_messages; then
+        _bs_mid
+        _bs_admin_messages
+    fi
+
+    _bs_mid
+    _bs_contact_info
+    _bs_bot
+
+    printf '\n'
+
+    # -- Cleanup ---------------------------------------------------------
+    unset -f _bs_top _bs_mid _bs_bot _bs_row _bs_row_colored_full
+    unset -f _bs_now_epoch _bs_today_str _bs_last_thursday_epoch
+    unset -f _bs_get_next_maintenance _bs_maintenance_banner
+    unset -f _bs_has_messages _bs_admin_messages
+    unset -f _bs_header _bs_system_info _bs_contact_info
+}
+
+__bodhi_splash_main "$@"
+unset -f __bodhi_splash_main

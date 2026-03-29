@@ -17,6 +17,7 @@ nav = [
     {"Scripts" = "example-scripts.md"},
     {"Converter" = "conversion-script.md"},
     {"Interactive Sessions" = "sinteractive.md"},
+    {"Login Splash" = "login-splash.md"},
   ]},
   {"Resources" = "resources.md"},
 ]
