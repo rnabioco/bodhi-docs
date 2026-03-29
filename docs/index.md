@@ -21,7 +21,7 @@ The Bodhi HPC cluster is migrating from **IBM Spectrum LSF** to **SLURM**. This 
 | Submit a job | `bsub < script.sh` | `sbatch script.sh` |
 | Job status | `bjobs` | `squeue` |
 | Cancel a job | `bkill` | `scancel` |
-| Interactive session | `bsub -Is -q interactive bash` | `srun --pty bash` |
+| Interactive session | `bsub -Is -q interactive bash` | [`sinteractive`](sinteractive.md) or `srun --pty bash` |
 | Array index variable | `$LSB_JOBINDEX` | `$SLURM_ARRAY_TASK_ID` |
 
 !!! tip "Use the converter script"

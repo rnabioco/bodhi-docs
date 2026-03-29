@@ -7,7 +7,7 @@ This page maps common LSF commands to their SLURM equivalents.
 | Action | LSF | SLURM | Notes |
 |---|---|---|---|
 | Submit a batch job | `bsub < script.sh` | `sbatch script.sh` | SLURM does not need input redirection |
-| Interactive session | `bsub -Is -q interactive bash` | `srun --pty bash` | Add resource flags as needed |
+| Interactive session | `bsub -Is -q interactive bash` | [`sinteractive`](sinteractive.md) or `srun --pty bash` | `sinteractive` supports reconnect; see [docs](sinteractive.md) |
 | View job queue | `bjobs` | `squeue -u $USER` | |
 | View all jobs | `bjobs -a` | `squeue` | |
 | Detailed job info | `bjobs -l <jobid>` | `scontrol show job <jobid>` | |
