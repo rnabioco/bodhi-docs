@@ -30,6 +30,28 @@ __bodhi_splash_main() {
     local _help_email="${BODHI_HELP_EMAIL:-}"
     local _docs_url="${BODHI_DOCS_URL:-https://rnabioco.github.io/bodhi-docs/}"
 
+    # -- Theme detection ---------------------------------------------------
+    _bs_detect_theme() {
+        # 1. Explicit override
+        if [[ -n "${BODHI_SPLASH_THEME:-}" ]]; then
+            echo "$BODHI_SPLASH_THEME"
+            return
+        fi
+        # 2. Auto-detect via COLORFGBG (set by xterm, rxvt, etc.)
+        #    Format: "fg;bg" or "fg;fade;bg" — last value is bg palette index
+        if [[ -n "${COLORFGBG:-}" ]]; then
+            local _bg="${COLORFGBG##*;}"
+            if [[ "$_bg" =~ ^[0-9]+$ ]]; then
+                # 0-6,8 = dark palette colors; 7,9-15 = light
+                if (( _bg == 7 || (_bg >= 9 && _bg <= 15) )); then
+                    echo "light"
+                    return
+                fi
+            fi
+        fi
+        echo "dark"
+    }
+
     # -- Colors (ANSI SGR) -----------------------------------------------
     local _rst _bold _dim _yellow _cyan
     local _bg_red _bg_yellow
@@ -37,10 +59,15 @@ __bodhi_splash_main() {
         _rst=$'\e[0m'
         _bold=$'\e[1m'
         _dim=$'\e[2m'
-        _yellow=$'\e[33m'
-        _cyan=$'\e[36m'
         _bg_red=$'\e[1;97;41m'       # bold white on red
         _bg_yellow=$'\e[1;30;43m'    # bold black on yellow
+        if [[ "$(_bs_detect_theme)" == "light" ]]; then
+            _yellow=$'\e[35m'        # magenta (readable on light bg)
+            _cyan=$'\e[34m'          # blue (better contrast than cyan)
+        else
+            _yellow=$'\e[33m'
+            _cyan=$'\e[36m'
+        fi
     else
         _rst='' _bold='' _dim='' _yellow='' _cyan=''
         _bg_red='' _bg_yellow=''
@@ -295,6 +322,7 @@ __bodhi_splash_main() {
 
     # -- Cleanup ---------------------------------------------------------
     unset -f _bs_top _bs_mid _bs_bot _bs_row _bs_row_colored_full
+    unset -f _bs_detect_theme
     unset -f _bs_now_epoch _bs_today_str _bs_last_thursday_epoch
     unset -f _bs_get_next_maintenance _bs_maintenance_banner
     unset -f _bs_has_messages _bs_admin_messages
