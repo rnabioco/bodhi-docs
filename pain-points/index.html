@@ -1,0 +1,1565 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://rnabioco.github.io/bodhi-slurm-migration/pain-points/">
+      
+      
+        <link rel="prev" href="../job-arrays/">
+      
+      
+        <link rel="next" href="../example-scripts/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>Common Pain Points - Bodhi LSF → SLURM Migration Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#common-pain-points" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="Bodhi LSF → SLURM Migration Guide" class="md-header__button md-logo" aria-label="Bodhi LSF → SLURM Migration Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Bodhi LSF → SLURM Migration Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Common Pain Points
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/rnabioco/bodhi-slurm-migration" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rnabioco/bodhi-slurm-migration
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="Bodhi LSF → SLURM Migration Guide" class="md-nav__button md-logo" aria-label="Bodhi LSF → SLURM Migration Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    Bodhi LSF → SLURM Migration Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rnabioco/bodhi-slurm-migration" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rnabioco/bodhi-slurm-migration
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migration Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Migration Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../directives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Directives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../environment-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment Variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../job-arrays/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Job Arrays
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Common Pain Points
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Common Pain Points
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-oom-out-of-memory-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging OOM (Out-of-Memory) errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging OOM (Out-of-Memory) errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-oom-kills-look-in-slurm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How OOM kills look in SLURM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diagnosing-memory-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnosing memory usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixing-oom-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixing OOM errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understanding-slurm-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding SLURM accounts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding SLURM accounts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is --account?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-your-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding your account(s)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setting-a-default-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting a default account
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-your-job-scripts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In your job scripts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#paying-attention-to-wall-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paying attention to wall time
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Paying attention to wall time">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#slurm-enforces-time-strictly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SLURM enforces --time strictly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checking-remaining-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checking remaining time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#consequences-of-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences of TIMEOUT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bodhi-partition-time-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bodhi partition time limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tips-for-setting-wall-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tips for setting wall time
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../example-scripts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scripts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../conversion-script/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Converter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sinteractive/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Interactive Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../resources/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Resources
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#debugging-oom-out-of-memory-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Debugging OOM (Out-of-Memory) errors
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Debugging OOM (Out-of-Memory) errors">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#how-oom-kills-look-in-slurm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How OOM kills look in SLURM
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diagnosing-memory-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diagnosing memory usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fixing-oom-errors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fixing OOM errors
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understanding-slurm-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding SLURM accounts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Understanding SLURM accounts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is --account?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#finding-your-accounts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Finding your account(s)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#setting-a-default-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting a default account
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#in-your-job-scripts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        In your job scripts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#paying-attention-to-wall-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Paying attention to wall time
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Paying attention to wall time">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#slurm-enforces-time-strictly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SLURM enforces --time strictly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#checking-remaining-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Checking remaining time
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#consequences-of-timeout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences of TIMEOUT
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bodhi-partition-time-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bodhi partition time limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tips-for-setting-wall-time" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tips for setting wall time
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="common-pain-points">Common Pain Points<a class="headerlink" href="#common-pain-points" title="Permanent link">&para;</a></h1>
+<p>This page covers recurring issues that Bodhi users encounter when migrating from LSF to SLURM. These aren't simple directive swaps — they're behavioral differences that catch people off guard.</p>
+<hr />
+<h2 id="debugging-oom-out-of-memory-errors">Debugging OOM (Out-of-Memory) errors<a class="headerlink" href="#debugging-oom-out-of-memory-errors" title="Permanent link">&para;</a></h2>
+<h3 id="how-oom-kills-look-in-slurm">How OOM kills look in SLURM<a class="headerlink" href="#how-oom-kills-look-in-slurm" title="Permanent link">&para;</a></h3>
+<p>When a job exceeds its memory allocation, SLURM kills it immediately. The job state is set to <code>OUT_OF_MEMORY</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>$<span class="w"> </span>sacct<span class="w"> </span>-j<span class="w"> </span><span class="m">12345</span><span class="w"> </span>--format<span class="o">=</span>JobID,JobName,State,ExitCode,MaxRSS
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>JobID<span class="w">           </span>JobName<span class="w">      </span>State<span class="w"> </span>ExitCode<span class="w">     </span>MaxRSS
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>------------<span class="w"> </span>----------<span class="w"> </span>----------<span class="w"> </span>--------<span class="w"> </span>----------
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="m">12345</span><span class="w">          </span>analysis<span class="w"> </span>OUT_OF_ME+<span class="w">      </span><span class="m">0</span>:125
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="m">12345</span>.batch<span class="w">       </span>batch<span class="w"> </span>OUT_OF_ME+<span class="w">      </span><span class="m">0</span>:125<span class="w">    </span><span class="m">15</span>.8G
+</code></pre></div>
+<p>You can also see this with <code>seff</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>$<span class="w"> </span>seff<span class="w"> </span><span class="m">12345</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>Job<span class="w"> </span>ID:<span class="w"> </span><span class="m">12345</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>State:<span class="w"> </span>OUT_OF_MEMORY<span class="w"> </span><span class="o">(</span><span class="nb">exit</span><span class="w"> </span>code<span class="w"> </span><span class="m">0</span><span class="o">)</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>Memory<span class="w"> </span>Utilized:<span class="w"> </span><span class="m">15</span>.80<span class="w"> </span>GB
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>Memory<span class="w"> </span>Efficiency:<span class="w"> </span><span class="m">98</span>.75%<span class="w"> </span>of<span class="w"> </span><span class="m">16</span>.00<span class="w"> </span>GB
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">This is different from LSF</p>
+<p>On Bodhi's LSF, memory limits were often <strong>soft limits</strong> — jobs could exceed their requested memory without being killed (as long as the node had memory available). In SLURM, <code>--mem</code> is a <strong>hard limit</strong> enforced by cgroups. If your job exceeds it, even briefly, it will be killed.</p>
+</div>
+<h3 id="diagnosing-memory-usage">Diagnosing memory usage<a class="headerlink" href="#diagnosing-memory-usage" title="Permanent link">&para;</a></h3>
+<p><strong>For completed jobs</strong>, use <code>sacct</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="c1"># Check peak memory usage</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>sacct<span class="w"> </span>-j<span class="w"> </span>&lt;jobid&gt;<span class="w"> </span>--format<span class="o">=</span>JobID,JobName,MaxRSS,MaxVMSize,State
+<a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>
+<a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="c1"># For array jobs, check all tasks</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>sacct<span class="w"> </span>-j<span class="w"> </span>&lt;jobid&gt;<span class="w"> </span>--format<span class="o">=</span>JobID%20,JobName,MaxRSS,State
+</code></pre></div>
+<p><strong>For running jobs</strong>, use <code>sstat</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="c1"># Monitor memory of a running job</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>sstat<span class="w"> </span>-j<span class="w"> </span>&lt;jobid&gt;<span class="w"> </span>--format<span class="o">=</span>JobID,MaxRSS,MaxVMSize
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Use <code>seff</code> for quick checks</p>
+<p><code>seff &lt;jobid&gt;</code> gives a one-line summary of memory efficiency for completed jobs. It's the fastest way to check if your job was close to its memory limit.</p>
+</div>
+<h3 id="fixing-oom-errors">Fixing OOM errors<a class="headerlink" href="#fixing-oom-errors" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Check what your job actually used</strong> — run <code>seff &lt;jobid&gt;</code> on a similar completed job to see actual peak memory.</p>
+</li>
+<li>
+<p><strong>Request more memory with headroom</strong> — add 20–30% buffer above the observed peak:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1">#SBATCH --mem=20G   # if your job peaked at ~15 GB</span>
+</code></pre></div>
+</li>
+<li>
+<p><strong>Use <code>--mem-per-cpu</code> for multi-threaded jobs</strong> — if your job scales memory with cores:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">#SBATCH --cpus-per-task=8</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1">#SBATCH --mem-per-cpu=4G   # 32 GB total</span>
+</code></pre></div>
+</li>
+</ol>
+<div class="admonition info">
+<p class="admonition-title">Default memory when <code>--mem</code> is not specified</p>
+<p>Bodhi's default is <code>DefMemPerCPU=4000</code> (4 GB per CPU). So a job requesting <code>--cpus-per-task=4</code> with no <code>--mem</code> gets 16 GB total. A single-CPU job gets 4 GB.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Don't just request the maximum</p>
+<p>Requesting far more memory than you need reduces scheduling priority and wastes cluster resources. Right-size your requests based on actual usage from <code>seff</code>.</p>
+</div>
+<hr />
+<h2 id="understanding-slurm-accounts">Understanding SLURM accounts<a class="headerlink" href="#understanding-slurm-accounts" title="Permanent link">&para;</a></h2>
+<h3 id="what-is-account">What is <code>--account</code>?<a class="headerlink" href="#what-is-account" title="Permanent link">&para;</a></h3>
+<p>In SLURM, the <code>--account</code> flag associates your job with a resource allocation account. This is used for:</p>
+<ul>
+<li><strong>Fair-share scheduling</strong> — accounts that have used fewer resources recently get higher priority</li>
+<li><strong>Resource tracking</strong> — PIs and admins can see how allocations are consumed</li>
+<li><strong>Access control</strong> — some partitions may be restricted to certain accounts</li>
+</ul>
+<div class="admonition warning">
+<p class="admonition-title">Why this matters on Bodhi</p>
+<p>On LSF, the <code>-P</code> project flag was often optional or had a simple default. On SLURM, submitting with the wrong account (or no account) can result in job rejection or lower scheduling priority.</p>
+</div>
+<h3 id="finding-your-accounts">Finding your account(s)<a class="headerlink" href="#finding-your-accounts" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># List your SLURM associations (accounts and partitions you can use)</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>sacctmgr<span class="w"> </span>show<span class="w"> </span>associations<span class="w"> </span><span class="nv">user</span><span class="o">=</span><span class="nv">$USER</span><span class="w"> </span><span class="nv">format</span><span class="o">=</span>Account,Partition,QOS
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="c1"># Shorter version — just account names</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>sacctmgr<span class="w"> </span>show<span class="w"> </span>associations<span class="w"> </span><span class="nv">user</span><span class="o">=</span><span class="nv">$USER</span><span class="w"> </span><span class="nv">format</span><span class="o">=</span>Account<span class="w"> </span>--noheader<span class="w"> </span><span class="p">|</span><span class="w"> </span>sort<span class="w"> </span>-u
+</code></pre></div>
+<p>Bodhi accounts are <strong>lab/group-based</strong>. Each account corresponds to a research group or resource class:</p>
+<table>
+<thead>
+<tr>
+<th>Account</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bmg</code></td>
+<td>Biochemistry and Molecular Genetics</td>
+</tr>
+<tr>
+<td><code>rbi</code></td>
+<td>RNA Bioscience Initiative</td>
+</tr>
+<tr>
+<td><code>jones</code></td>
+<td>Jones lab (Pediatrics)</td>
+</tr>
+<tr>
+<td><code>genome</code></td>
+<td>Genome group</td>
+</tr>
+<tr>
+<td><code>scb</code></td>
+<td>SCB group (SOM Hematology)</td>
+</tr>
+<tr>
+<td><code>gpu_rbi</code></td>
+<td>GPU access for RBI</td>
+</tr>
+<tr>
+<td><code>gpu_scb</code></td>
+<td>GPU access for SCB</td>
+</tr>
+<tr>
+<td><code>bigmem</code></td>
+<td>Large-memory node access</td>
+</tr>
+<tr>
+<td><code>cranio</code></td>
+<td>Craniofacial group</td>
+</tr>
+<tr>
+<td><code>normal</code></td>
+<td>General/shared access</td>
+</tr>
+<tr>
+<td><code>peds_devbio</code></td>
+<td>Pediatrics Developmental Biology</td>
+</tr>
+<tr>
+<td><code>peds_hematology</code></td>
+<td>Pediatrics Hematology</td>
+</tr>
+<tr>
+<td><code>som_hematology</code></td>
+<td>SOM Hematology</td>
+</tr>
+<tr>
+<td><code>som_dermatology</code></td>
+<td>SOM Dermatology</td>
+</tr>
+<tr>
+<td><code>medical_oncology</code></td>
+<td>Medical Oncology</td>
+</tr>
+<tr>
+<td><code>gastroenterology</code></td>
+<td>Gastroenterology</td>
+</tr>
+</tbody>
+</table>
+<p>Most users are associated with their PI's lab account. You may belong to multiple accounts (e.g., <code>rbi</code> for CPU jobs and <code>gpu_rbi</code> for GPU jobs).</p>
+<h3 id="setting-a-default-account">Setting a default account<a class="headerlink" href="#setting-a-default-account" title="Permanent link">&para;</a></h3>
+<p>Rather than adding <code>--account</code> to every script, set a default:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Set your default account (persists across sessions)</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>sacctmgr<span class="w"> </span>modify<span class="w"> </span>user<span class="w"> </span><span class="nv">$USER</span><span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="nv">DefaultAccount</span><span class="o">=</span>&lt;your_account&gt;
+</code></pre></div>
+<p>You can also add it to your <code>~/.bashrc</code> or a SLURM defaults file:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># In ~/.bashrc</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SBATCH_ACCOUNT</span><span class="o">=</span>&lt;your_account&gt;
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">SRUN_ACCOUNT</span><span class="o">=</span>&lt;your_account&gt;
+</code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Check your default</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>sacctmgr<span class="w"> </span>show<span class="w"> </span>user<span class="w"> </span><span class="nv">$USER</span><span class="w"> </span><span class="nv">format</span><span class="o">=</span>DefaultAccount
+</code></pre></div>
+</div>
+<h3 id="in-your-job-scripts">In your job scripts<a class="headerlink" href="#in-your-job-scripts" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="c1">#SBATCH --account=&lt;your_account&gt;</span>
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title"><code>--account</code> is effectively required on Bodhi</p>
+<p>Bodhi enforces <code>AccountingStorageEnforce=associations,limits,qos</code>, which means jobs are <strong>rejected</strong> if your user lacks a valid account association for the target partition and QoS. If you have only one account, Slurm uses it automatically. If you have multiple accounts, set a default (see above) to avoid specifying <code>--account</code> on every submission.</p>
+</div>
+<hr />
+<h2 id="paying-attention-to-wall-time">Paying attention to wall time<a class="headerlink" href="#paying-attention-to-wall-time" title="Permanent link">&para;</a></h2>
+<h3 id="slurm-enforces-time-strictly">SLURM enforces <code>--time</code> strictly<a class="headerlink" href="#slurm-enforces-time-strictly" title="Permanent link">&para;</a></h3>
+<p>In SLURM, the <code>--time</code> (wall time) limit is a <strong>hard cutoff</strong>. When your job hits the limit:</p>
+<ol>
+<li>SLURM sends <code>SIGTERM</code> to your job (giving it a chance to clean up)</li>
+<li>After a 30-second grace period (<code>KillWait=30</code>), SLURM sends <code>SIGKILL</code></li>
+<li>The job state is set to <code>TIMEOUT</code></li>
+</ol>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>$<span class="w"> </span>sacct<span class="w"> </span>-j<span class="w"> </span><span class="m">12345</span><span class="w"> </span>--format<span class="o">=</span>JobID,JobName,Elapsed,Timelimit,State
+<a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>JobID<span class="w">           </span>JobName<span class="w">    </span>Elapsed<span class="w">  </span>Timelimit<span class="w">      </span>State
+<a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>------------<span class="w"> </span>----------<span class="w"> </span>----------<span class="w"> </span>----------<span class="w"> </span>----------
+<a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="m">12345</span><span class="w">          </span>longrun<span class="w">   </span><span class="m">02</span>:00:00<span class="w">   </span><span class="m">02</span>:00:00<span class="w">    </span>TIMEOUT
+</code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">This is different from LSF</p>
+<p>On Bodhi's LSF, wall-time limits were often loosely enforced — jobs could sometimes run past their <code>-W</code> limit. In SLURM, when your time is up, your job is killed. Period.</p>
+</div>
+<h3 id="checking-remaining-time">Checking remaining time<a class="headerlink" href="#checking-remaining-time" title="Permanent link">&para;</a></h3>
+<p><strong>From outside the job:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># See time limit and elapsed time</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a>squeue<span class="w"> </span>-u<span class="w"> </span><span class="nv">$USER</span><span class="w"> </span>-o<span class="w"> </span><span class="s2">&quot;%.10i %.20j %.10M %.10l %.6D %R&quot;</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="c1">#                              Elapsed ^  ^ Limit</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>
+<a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="c1"># Detailed view</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a>scontrol<span class="w"> </span>show<span class="w"> </span>job<span class="w"> </span>&lt;jobid&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>-E<span class="w"> </span><span class="s2">&quot;RunTime|TimeLimit&quot;</span>
+</code></pre></div>
+<p><strong>From inside the job</strong> (in your script):</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># Remaining time in seconds — useful for checkpointing</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a>squeue<span class="w"> </span>-j<span class="w"> </span><span class="nv">$SLURM_JOB_ID</span><span class="w"> </span>-h<span class="w"> </span>-o<span class="w"> </span><span class="s2">&quot;%L&quot;</span>
+</code></pre></div>
+<h3 id="consequences-of-timeout">Consequences of TIMEOUT<a class="headerlink" href="#consequences-of-timeout" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Your job output may be incomplete or corrupted</li>
+<li>Any files being written at kill time may be truncated</li>
+<li>Temporary files won't be cleaned up</li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Add cleanup traps</p>
+<p>If your job writes large intermediate files, add a trap to handle <code>SIGTERM</code>:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>cleanup<span class="o">()</span><span class="w"> </span><span class="o">{</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;Job hit time limit — cleaning up&quot;</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="w">    </span><span class="c1"># save checkpoint, remove temp files, etc.</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a><span class="o">}</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="nb">trap</span><span class="w"> </span>cleanup<span class="w"> </span>SIGTERM
+</code></pre></div>
+</div>
+<h3 id="bodhi-partition-time-limits">Bodhi partition time limits<a class="headerlink" href="#bodhi-partition-time-limits" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Partition</th>
+<th>Max wall time</th>
+<th>Default wall time</th>
+<th>Nodes</th>
+<th>Access</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>normal</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute01–04, 06–07, 14</td>
+<td>All accounts</td>
+<td>Default partition</td>
+</tr>
+<tr>
+<td><code>rna</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute07–09, 15–20</td>
+<td><code>rbi</code></td>
+<td>Falls back to <code>normal</code></td>
+</tr>
+<tr>
+<td><code>jones</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute04–05, 10–12</td>
+<td><code>jones</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>genome</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute06–09</td>
+<td><code>genome</code></td>
+<td>Falls back to <code>normal</code></td>
+</tr>
+<tr>
+<td><code>gpu</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compgpu01, 03</td>
+<td><code>gpu_rbi</code></td>
+<td>8× NVIDIA A30</td>
+</tr>
+<tr>
+<td><code>scb_gpu</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compgpu02</td>
+<td><code>gpu_scb</code></td>
+<td>4× NVIDIA A30</td>
+</tr>
+<tr>
+<td><code>scb</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute13</td>
+<td><code>scb</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>cranio</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute21</td>
+<td><code>scb</code></td>
+<td>Falls back to <code>normal</code></td>
+</tr>
+<tr>
+<td><code>bigmem</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute14</td>
+<td><code>bigmem</code></td>
+<td>~1.5 TB RAM</td>
+</tr>
+<tr>
+<td><code>rstudio</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute00</td>
+<td><code>bigmem</code></td>
+<td>Interactive RStudio</td>
+</tr>
+<tr>
+<td><code>voila</code></td>
+<td>3 days</td>
+<td>not set</td>
+<td>compute00</td>
+<td><code>bigmem</code></td>
+<td>Voilà notebooks</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">No default wall time is set</p>
+<p>If you omit <code>--time</code>, your job inherits the partition's <code>MaxTime</code> (3 days). <strong>Always specify <code>--time</code></strong> — shorter jobs schedule faster via backfill, and you avoid tying up resources longer than needed.</p>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Check current limits</p>
+<p>Partition limits can change. Verify the current limits with:</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a>sinfo<span class="w"> </span>-o<span class="w"> </span><span class="s2">&quot;%12P %10l %10L %6D %8c %10m&quot;</span>
+<a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="c1">#            Name  TimeLimit  DefTime  Nodes  CPUs  Memory</span>
+</code></pre></div>
+</div>
+<h3 id="tips-for-setting-wall-time">Tips for setting wall time<a class="headerlink" href="#tips-for-setting-wall-time" title="Permanent link">&para;</a></h3>
+<ol>
+<li>
+<p><strong>Start with a generous estimate</strong>, then refine based on actual runtimes using <code>seff</code> or <code>sacct</code>.</p>
+</li>
+<li>
+<p><strong>Shorter jobs schedule faster</strong> — SLURM's backfill scheduler can fit shorter jobs into gaps. Requesting 2 hours instead of 7 days can dramatically reduce queue wait time.</p>
+</li>
+<li>
+<p><strong>Use <code>sacct</code> to check past runtimes:</strong></p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a>sacct<span class="w"> </span>-u<span class="w"> </span><span class="nv">$USER</span><span class="w"> </span>--format<span class="o">=</span>JobID,JobName,Elapsed,State<span class="w"> </span>-S<span class="w"> </span><span class="m">2024</span>-01-01<span class="w"> </span><span class="p">|</span><span class="w"> </span>grep<span class="w"> </span>COMPLETED
+</code></pre></div>
+</li>
+<li>
+<p><strong>SLURM format for <code>--time</code>:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MM</code></td>
+<td>Minutes</td>
+</tr>
+<tr>
+<td><code>HH:MM:SS</code></td>
+<td>Hours, minutes, seconds</td>
+</tr>
+<tr>
+<td><code>D-HH:MM:SS</code></td>
+<td>Days, hours, minutes, seconds</td>
+</tr>
+<tr>
+<td><code>D-HH</code></td>
+<td>Days and hours</td>
+</tr>
+</tbody>
+</table>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="c1">#SBATCH --time=04:00:00      # 4 hours</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a><span class="c1">#SBATCH --time=1-00:00:00    # 1 day</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a><span class="c1">#SBATCH --time=7-00:00:00    # 7 days</span>
+</code></pre></div>
+</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tabs.link", "navigation.instant", "navigation.sections", "navigation.top", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
