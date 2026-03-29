@@ -1,25 +1,29 @@
 [project]
-site_name = "Bodhi LSF → SLURM Migration Guide"
+site_name = "Bodhi HPC User Guide"
 site_url = "https://rnabioco.github.io/bodhi-slurm-migration/"
 repo_url = "https://github.com/rnabioco/bodhi-slurm-migration"
 repo_name = "rnabioco/bodhi-slurm-migration"
 
 nav = [
   {"Home" = "index.md"},
-  {"Migration Guide" = [
-    {"Directives" = "directives.md"},
-    {"Commands" = "commands.md"},
-    {"Environment Variables" = "environment-variables.md"},
-    {"Job Arrays" = "job-arrays.md"},
-    {"Common Pain Points" = "pain-points.md"},
+  {"SLURM" = [
+    {"Migration Guide" = [
+      {"Directives" = "directives.md"},
+      {"Commands" = "commands.md"},
+      {"Environment Variables" = "environment-variables.md"},
+      {"Job Arrays" = "job-arrays.md"},
+      {"Common Pain Points" = "pain-points.md"},
+    ]},
+    {"Examples" = [
+      {"Scripts" = "example-scripts.md"},
+      {"Converter" = "conversion-script.md"},
+      {"Interactive Sessions" = "sinteractive.md"},
+      {"Login Splash" = "login-splash.md"},
+    ]},
+    {"Resources" = "resources.md"},
   ]},
-  {"Examples" = [
-    {"Scripts" = "example-scripts.md"},
-    {"Converter" = "conversion-script.md"},
-    {"Interactive Sessions" = "sinteractive.md"},
-    {"Login Splash" = "login-splash.md"},
-  ]},
-  {"Resources" = "resources.md"},
+  {"Backups" = "backups.md"},
+  {"Getting Help" = "getting-help.md"},
 ]
 
 [project.theme]

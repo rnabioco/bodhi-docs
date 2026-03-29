@@ -1,40 +1,29 @@
-# Bodhi LSF → SLURM Migration Guide
+# Bodhi HPC User Guide
 
-!!! info "Questions?"
-    Contact **David Farrell** with any questions about the Bodhi LSF-to-SLURM migration.
+Welcome to the documentation site for the **Bodhi HPC cluster**. Use the sections below to find what you need.
 
-The Bodhi HPC cluster is migrating from **IBM Spectrum LSF** to **SLURM**. This guide helps you convert your existing LSF job scripts and workflows to SLURM.
+---
 
-## Quick-start checklist
+## SLURM Documentation
 
-- 🔀 Replace `#BSUB` directives with `#SBATCH` equivalents ([Directives](directives.md))
-- 🖥️ Update submission and monitoring commands ([Commands](commands.md))
-- 🔤 Replace `$LSB_*` environment variables with `$SLURM_*` equivalents ([Environment Variables](environment-variables.md))
-- 🔢 Review job array syntax changes ([Job Arrays](job-arrays.md))
-- ✅ Test your converted scripts with a short run before submitting production jobs
+Bodhi has migrated from IBM Spectrum LSF to **SLURM**. Our SLURM documentation covers everything you need to get your jobs running:
 
-## Key differences at a glance
+- [**Directives**](directives.md) — `#BSUB` → `#SBATCH` mapping
+- [**Commands**](commands.md) — LSF-to-SLURM command equivalents
+- [**Environment Variables**](environment-variables.md) — `$LSB_*` → `$SLURM_*` mapping
+- [**Job Arrays**](job-arrays.md) — array job syntax changes
+- [**Common Pain Points**](pain-points.md) — OOM debugging, accounts, wall time
+- [**Example Scripts**](example-scripts.md) — complete before/after job scripts
+- [**Converter**](conversion-script.md) — automated `lsf2slurm.sh` helper script
+- [**Interactive Sessions**](sinteractive.md) — persistent interactive jobs with tmux
+- [**Resources**](resources.md) — links to official SLURM documentation
 
-| Concept | LSF | SLURM |
-|---|---|---|
-| Scheduler directive | `#BSUB` | `#SBATCH` |
-| Submit a job | `bsub < script.sh` | `sbatch script.sh` |
-| Job status | `bjobs` | `squeue` |
-| Cancel a job | `bkill` | `scancel` |
-| Interactive session | `bsub -Is -q interactive bash` | [`sinteractive`](sinteractive.md) or `srun --pty bash` |
-| Array index variable | `$LSB_JOBINDEX` | `$SLURM_ARRAY_TASK_ID` |
+## Backups
 
-!!! tip "Use the converter script"
-    We provide a [sed-based helper script](conversion-script.md) that handles the most common directive and variable substitutions automatically. It's a great starting point — just review the output before submitting.
+Guidelines for backing up your data on the Bodhi cluster.
 
-## What stays the same
+- [**Backup Instructions**](backups.md) — what to back up, where, and how
 
-- **Shell scripts are still shell scripts.** Only the scheduler directives and environment variables change; your actual commands (`samtools`, `R`, `python`, etc.) remain the same.
-- **Stdout/stderr** are still captured to files — the default file naming just differs slightly.
-- **Module system** (`module load ...`) is unchanged.
+## Getting Help
 
-## Where to get help
-
-- Browse this guide using the sidebar navigation
-- Check the [Resources](resources.md) page for links to official SLURM documentation
-- Contact the Bodhi HPC support team with migration questions
+- [**Contacts & Support**](getting-help.md) — who to contact and how to get assistance
