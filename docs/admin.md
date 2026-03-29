@@ -49,3 +49,44 @@ scontrol update NodeName=ALL State=RESUME
 ```
 
 The reservation approach is preferred because it gives users visibility and lets the scheduler handle everything automatically.
+
+## Interactive partition
+
+The `interactive` partition provides a dedicated queue for interactive work with shorter time limits and a per-user job cap to prevent monopolization.
+
+### slurm.conf
+
+Add the following line to `/etc/slurm/slurm.conf`:
+
+```conf
+PartitionName=interactive Nodes=compute[03-04],compute[06-07] Default=NO MaxTime=1-00:00:00 DefaultTime=08:00:00 State=UP AllowQOS=interactive QOS=interactive
+```
+
+| Parameter | Value | Purpose |
+|---|---|---|
+| `Nodes` | `compute[03-04],compute[06-07]` | Shared with `normal` partition |
+| `Default` | `NO` | Users must request this partition explicitly |
+| `MaxTime` | `1-00:00:00` | 1-day maximum wall time |
+| `DefaultTime` | `08:00:00` | 8-hour default (matches `sinteractive` default) |
+| `AllowQOS` | `interactive` | Only the `interactive` QOS can submit here |
+| `QOS` | `interactive` | All jobs use this QOS automatically |
+
+### Per-user job limit (QOS)
+
+`MaxJobsPerUser` is not a valid `slurm.conf` partition parameter — enforce it via a QOS instead:
+
+```bash
+# Create the QOS with a 3-job-per-user limit
+sacctmgr add qos interactive set MaxJobsPerUser=3
+
+# Allow all accounts to use it
+sacctmgr modify account where account=root withsubaccounts set qos+=interactive
+```
+
+### Apply and verify
+
+```bash
+scontrol reconfigure
+scontrol show partition interactive
+sacctmgr show qos interactive format=Name,MaxJobsPerUser
+```

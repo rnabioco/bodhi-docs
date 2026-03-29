@@ -219,6 +219,7 @@ squeue -j $SLURM_JOB_ID -h -o "%L"
 | Partition | Max wall time | Default wall time | Nodes | Access | Notes |
 |---|---|---|---|---|---|
 | `normal` | 3 days | not set | compute01–04, 06–07, 14 | All accounts | Default partition |
+| `interactive` | 1 day | 8 hours | compute03–04, 06–07 | All accounts | Max 3 jobs/user |
 | `rna` | 3 days | not set | compute07–09, 15–20 | `rbi` | Falls back to `normal` |
 | `jones` | 3 days | not set | compute04–05, 10–12 | `jones` | |
 | `genome` | 3 days | not set | compute06–09 | `genome` | Falls back to `normal` |
