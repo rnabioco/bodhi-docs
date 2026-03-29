@@ -330,7 +330,8 @@ __bodhi_splash_main() {
     _bs_mid
     local _next_maint_str
     _next_maint_str=$(date -d "@$(_bs_get_next_maintenance)" "+%B %-d")
-    _bs_row "${_dim}Cluster unavailable the last Thursday of every month (next: ${_next_maint_str}).${_rst}"
+    _bs_row "${_dim}Cluster unavailable the last Thursday of every month.${_rst}"
+    _bs_row "${_dim}Next maintenance: ${_next_maint_str}${_rst}"
     _bs_bot
 
     printf '\n'
