@@ -7,10 +7,9 @@ platforms = ["linux-64", "osx-arm64"]
 
 [dependencies]
 python = ">=3.11"
-mkdocs = ">=1.6"
-mkdocs-material = ">=9.6"
+zensical = "*"
 
 [tasks]
-docs = "mkdocs serve"
-build = "mkdocs build --strict"
-deploy = "mkdocs gh-deploy --force"
+docs = "zensical serve"
+build = "zensical build"
+deploy = "zensical build --clean"

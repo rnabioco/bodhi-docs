@@ -1,0 +1,68 @@
+[project]
+site_name = "Bodhi LSF → SLURM Migration Guide"
+site_url = "https://rnabioco.github.io/bodhi-slurm-migration/"
+repo_url = "https://github.com/rnabioco/bodhi-slurm-migration"
+repo_name = "rnabioco/bodhi-slurm-migration"
+
+nav = [
+  {"Home" = "index.md"},
+  {"Migration Guide" = [
+    {"Directives" = "directives.md"},
+    {"Commands" = "commands.md"},
+    {"Environment Variables" = "environment-variables.md"},
+    {"Job Arrays" = "job-arrays.md"},
+    {"Common Pain Points" = "pain-points.md"},
+  ]},
+  {"Examples" = [
+    {"Scripts" = "example-scripts.md"},
+    {"Converter" = "conversion-script.md"},
+    {"Interactive Sessions" = "sinteractive.md"},
+  ]},
+  {"Resources" = "resources.md"},
+]
+
+[project.theme]
+variant = "classic"
+features = [
+  "content.code.copy",
+  "content.tabs.link",
+  "navigation.instant",
+  "navigation.sections",
+  "navigation.top",
+  "toc.follow",
+]
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: light)"
+scheme = "default"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+media = "(prefers-color-scheme: dark)"
+scheme = "slate"
+primary = "indigo"
+accent = "indigo"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[project.markdown_extensions.admonition]
+
+[project.markdown_extensions.pymdownx.details]
+
+[project.markdown_extensions.pymdownx.superfences]
+
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+
+[project.markdown_extensions.pymdownx.inlinehilite]
+
+[project.markdown_extensions.tables]
+
+[project.markdown_extensions.toc]
+permalink = true
