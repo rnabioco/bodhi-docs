@@ -23,6 +23,7 @@ nav = [
     {"Resources" = "resources.md"},
   ]},
   {"Backups" = "backups.md"},
+  {"Admin" = "admin.md"},
   {"Getting Help" = "getting-help.md"},
 ]
 
