@@ -287,3 +287,70 @@ squeue -j $SLURM_JOB_ID -h -o "%L"
     #SBATCH --time=1-00:00:00    # 1 day
     #SBATCH --time=7-00:00:00    # 7 days
     ```
+
+---
+
+## QoS tiers
+
+SLURM Quality of Service (QoS) tiers control job priority, time limits, and resource caps. Every job runs under a QoS — if you don't specify one, you get `normal`.
+
+### Available QoS tiers
+
+| QoS | Priority | Max wall time | Max running jobs | Max queued jobs | Resource caps | Use case |
+|---|---|---|---|---|---|---|
+| `high` | 100 | partition limit | 10 | 20 | — | Urgent jobs — requires admin approval |
+| `long` | 50 | 7 days | 5 | 50 | 32 CPUs | Extended runs that need >1 day |
+| `interactive` | 50 | 12 hours | 3 | 3 | 16 CPUs, 8 GB | Terminal sessions via `sinteractive` |
+| `normal` | 25 | 1 day | 100 | 500 | — | Default for most jobs |
+| `low` | 10 | 7 days | 50 | 200 | — | Background, non-urgent work |
+
+!!! info "How priority works"
+    Higher priority QoS tiers are scheduled first. The `high` QoS can also **preempt** (requeue) running `normal` jobs when resources are needed.
+
+### Using a QoS
+
+```bash
+#SBATCH --qos=long
+#SBATCH --time=3-00:00:00
+```
+
+Or on the command line:
+
+```bash
+sbatch --qos=long myjob.sh
+```
+
+### When to use `long`
+
+The `normal` QoS has a 1-day time limit. If your job needs more time, use `long`:
+
+```bash
+#SBATCH --qos=long
+#SBATCH --time=5-00:00:00    # up to 7 days
+```
+
+`long` has `OverPartQOS` — it overrides partition time limits, so you can run >1 day jobs on any partition. The tradeoff: you're limited to 5 running jobs and 32 CPUs total under `long`.
+
+### When to use `low`
+
+For jobs that can wait — overnight runs, large batch submissions where turnaround isn't critical:
+
+```bash
+#SBATCH --qos=low
+#SBATCH --time=3-00:00:00
+```
+
+`low` allows up to 7 days and 50 concurrent jobs, but at reduced priority.
+
+### DenyOnLimit
+
+All QoS tiers enforce `DenyOnLimit` — if your job exceeds the QoS limits (too many running jobs, too many CPUs, etc.), it is **rejected at submit time** rather than sitting in the queue forever. You'll see an immediate error telling you what limit was hit.
+
+!!! tip "Check your QoS"
+    ```bash
+    # See which QoS tiers you can use
+    sacctmgr show associations user=$USER format=Account,QOS
+
+    # See all QoS definitions
+    sacctmgr show qos format=Name,Priority,MaxWall,MaxJobsPU,MaxSubmitPU,MaxTRESPU,Flags
+    ```
