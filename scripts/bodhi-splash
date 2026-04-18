@@ -33,13 +33,59 @@ __bodhi_splash_main() {
     local _docs_url="${BODHI_DOCS_URL:-https://rnabioco.github.io/bodhi-docs/}"
 
     # -- Theme detection ---------------------------------------------------
+    # Query the terminal's background via OSC 11.
+    # Sends: ESC ] 11 ; ? BEL
+    # Expects: ESC ] 11 ; rgb:RRRR/GGGG/BBBB BEL  (components are 1-4 hex digits)
+    # Echoes "light" or "dark" on success; returns non-zero on failure.
+    _bs_probe_osc11() {
+        [[ -t 0 && -t 1 ]] || return 1
+        [[ -z "${TERM:-}" || "$TERM" == "dumb" ]] && return 1
+        # Screen swallows OSC queries; skip to avoid hanging or leaking the probe
+        [[ -n "${STY:-}" ]] && return 1
+
+        local _response _old_stty
+        _old_stty=$(stty -g 2>/dev/null) || return 1
+        stty -echo -icanon 2>/dev/null || return 1
+
+        printf '\e]11;?\a' > /dev/tty 2>/dev/null
+        # Read up to BEL; rely on -t timeout rather than rc (ST-terminated
+        # replies time out but still populate the variable with partial data).
+        IFS= read -rs -t 0.15 -d $'\a' _response < /dev/tty
+
+        stty "$_old_stty" 2>/dev/null
+
+        [[ -z "$_response" ]] && return 1
+
+        if [[ "$_response" =~ rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+) ]]; then
+            local _rh="${BASH_REMATCH[1]}" _gh="${BASH_REMATCH[2]}" _bh="${BASH_REMATCH[3]}"
+            local _max
+            case "${#_rh}" in
+                1) _max=15 ;;
+                2) _max=255 ;;
+                3) _max=4095 ;;
+                4) _max=65535 ;;
+                *) return 1 ;;
+            esac
+            local _lum=$(( ( 16#$_rh + 16#$_gh + 16#$_bh ) * 100 / (3 * _max) ))
+            if (( _lum >= 50 )); then echo "light"; else echo "dark"; fi
+            return 0
+        fi
+        return 1
+    }
+
     _bs_detect_theme() {
         # 1. Explicit override
         if [[ -n "${BODHI_SPLASH_THEME:-}" ]]; then
             echo "$BODHI_SPLASH_THEME"
             return
         fi
-        # 2. Auto-detect via COLORFGBG (set by xterm, rxvt, etc.)
+        # 2. Ask the terminal directly (OSC 11)
+        local _theme
+        if _theme=$(_bs_probe_osc11); then
+            echo "$_theme"
+            return
+        fi
+        # 3. Fall back to COLORFGBG (xterm/rxvt legacy)
         #    Format: "fg;bg" or "fg;fade;bg" — last value is bg palette index
         if [[ -n "${COLORFGBG:-}" ]]; then
             local _bg="${COLORFGBG##*;}"
@@ -51,6 +97,7 @@ __bodhi_splash_main() {
                 fi
             fi
         fi
+        # 4. Default
         echo "dark"
     }
 
@@ -352,7 +399,7 @@ __bodhi_splash_main() {
 
     # -- Cleanup ---------------------------------------------------------
     unset -f _bs_top _bs_mid _bs_bot _bs_row _bs_row_colored_full
-    unset -f _bs_detect_theme
+    unset -f _bs_detect_theme _bs_probe_osc11
     unset -f _bs_now_epoch _bs_today_str _bs_last_thursday_epoch
     unset -f _bs_get_next_maintenance _bs_maintenance_banner
     unset -f _bs_has_messages _bs_admin_messages

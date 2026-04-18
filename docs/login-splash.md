@@ -112,7 +112,7 @@ All settings are controlled via environment variables with sensible defaults:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BODHI_NOSPLASH` | *(unset)* | Set to any value to suppress the splash |
-| `BODHI_SPLASH_THEME` | *(auto-detect)* | Force `light` or `dark` color scheme (auto-detects via `COLORFGBG`) |
+| `BODHI_SPLASH_THEME` | *(auto-detect)* | Force `light` or `dark` color scheme (auto-detects via OSC 11 query, falling back to `COLORFGBG`) |
 | `BODHI_MOTD_DIR` | `/etc/bodhi/motd.d` | Directory for admin message files |
 | `BODHI_MOTD_FILE` | `/etc/bodhi/motd` | Single admin message file (fallback) |
 | `BODHI_SPLASH_HOSTS` | *(unset — show everywhere)* | Hostname glob to restrict to login nodes |
