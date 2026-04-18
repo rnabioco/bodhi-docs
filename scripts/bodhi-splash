@@ -107,13 +107,14 @@ __bodhi_splash_main() {
     if [[ -t 1 ]]; then
         _rst=$'\e[0m'
         _bold=$'\e[1m'
-        _dim=$'\e[2m'
         _bg_red=$'\e[1;97;41m'       # bold white on red
         _bg_yellow=$'\e[1;30;43m'    # bold black on yellow
         if [[ "$(_bs_detect_theme)" == "light" ]]; then
+            _dim=$'\e[38;5;241m'     # mid-grey (dim \e[2m is too pale on light bg)
             _yellow=$'\e[35m'        # magenta (readable on light bg)
-            _cyan=$'\e[34m'          # blue (better contrast than cyan)
+            _cyan=$'\e[38;5;18m'     # dark blue (plain blue is too light on light bg)
         else
+            _dim=$'\e[2m'
             _yellow=$'\e[33m'
             _cyan=$'\e[36m'
         fi
