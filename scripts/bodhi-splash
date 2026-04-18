@@ -38,7 +38,9 @@ __bodhi_splash_main() {
     # Expects: ESC ] 11 ; rgb:RRRR/GGGG/BBBB BEL  (components are 1-4 hex digits)
     # Echoes "light" or "dark" on success; returns non-zero on failure.
     _bs_probe_osc11() {
-        [[ -t 0 && -t 1 ]] || return 1
+        # We I/O via /dev/tty directly, so don't check -t on stdin/stdout —
+        # this function is called via $(...), which makes stdout a pipe.
+        [[ -r /dev/tty && -w /dev/tty ]] || return 1
         [[ -z "${TERM:-}" || "$TERM" == "dumb" ]] && return 1
         # Screen swallows OSC queries; skip to avoid hanging or leaking the probe
         [[ -n "${STY:-}" ]] && return 1
