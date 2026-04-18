@@ -50,6 +50,40 @@ scontrol update NodeName=ALL State=RESUME
 
 The reservation approach is preferred because it gives users visibility and lets the scheduler handle everything automatically.
 
+## Extending a running job's wall time
+
+Users can only *decrease* `--time` on a running job. As root (or a SLURM operator), you can *increase* it with `scontrol update`:
+
+```bash
+# Absolute new limit
+scontrol update JobId=<jobid> TimeLimit=2-00:00:00
+
+# Or increment by a delta
+scontrol update JobId=<jobid> TimeLimit=+12:00:00
+```
+
+Verify:
+
+```bash
+scontrol show job <jobid> | grep -E "RunTime|TimeLimit|EndTime"
+```
+
+For long-running orchestrators that will blow past the `normal` QoS's 1-day cap, root's `scontrol update TimeLimit=` call alone is enough — the QoS check is only enforced at submit/eval time, not while the job runs. Ideally you'd also switch the job to `QOS=long` for clean reporting, but note:
+
+!!! warning "`QOS=` may be rejected on a running job"
+    Combining `QOS=long TimeLimit=…` in one call, or calling `scontrol update QOS=long` against a running job, can fail with `Job is no longer pending execution` depending on SLURM config. In that case, just update `TimeLimit` alone — the job keeps running past the `normal` QoS cap because the update was made by root. Child jobs submitted by the orchestrator continue to default to `QOS=normal`.
+
+If you need to go past the partition's wall-time cap (3 days on most partitions), you *do* need a `long`-QoS'd job, because `long` is the only QoS with `OverPartQOS`. In practice that means resubmitting with `--qos=long`, not patching a running job.
+
+### Caveats
+
+| Constraint | What to check |
+|---|---|
+| Partition max wall time | `sinfo -o "%P %l"` — new limit must be ≤ partition `MaxTime`, unless the new QoS has `OverPartQOS` |
+| QoS max wall time | `sacctmgr show qos` — switch QoS (`QOS=long`) rather than relying on root's bypass |
+| Active reservations | `scontrol show reservation` — extending past a `MAINT` window will block scheduling |
+| Backfill disruption | Raising `TimeLimit` invalidates backfill plans for queued jobs behind this one — expect some queue shuffle |
+
 ## Interactive partition
 
 The `interactive` partition provides a dedicated queue for interactive work with shorter time limits and a per-user job cap to prevent monopolization.
