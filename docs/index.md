@@ -21,9 +21,9 @@ Bodhi has migrated from IBM Spectrum LSF to **SLURM**. Our SLURM documentation c
 - [**Interactive Sessions**](sinteractive.md) — persistent interactive jobs with tmux
 - [**Resources**](resources.md) — links to official SLURM documentation
 
-## Positron SSH
+## Positron / VSCode
 
-- [**Remote SSH Setup**](https://github.com/rnabioco/remote-ssh-positron) — using Positron over remote SSH
+- [**Remote SSH Setup**](https://rnabioco.github.io/remote-ssh-positron/) — using Positron or VSCode over remote SSH
 
 ## Backups
 
