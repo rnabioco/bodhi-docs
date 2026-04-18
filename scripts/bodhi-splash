@@ -304,6 +304,11 @@ __bodhi_splash_main() {
         _bs_row "  Remote SSH setup: ${_cyan}https://rnabioco.github.io/remote-ssh-positron/${_rst}"
     }
 
+    _bs_quota() {
+        _bs_row "${_bold}Storage Quota${_rst}"
+        _bs_row "  Check your usage: ${_cyan}quota_check -u \$USER -b${_rst}"
+    }
+
     _bs_contact_info() {
         local contact="$_help_contact"
         [[ -n "$_help_email" ]] && contact="${contact} <${_help_email}>"
@@ -333,6 +338,8 @@ __bodhi_splash_main() {
     _bs_mid
     _bs_positron_vscode
     _bs_mid
+    _bs_quota
+    _bs_mid
     _bs_contact_info
     _bs_mid
     local _next_maint_str
@@ -349,7 +356,7 @@ __bodhi_splash_main() {
     unset -f _bs_now_epoch _bs_today_str _bs_last_thursday_epoch
     unset -f _bs_get_next_maintenance _bs_maintenance_banner
     unset -f _bs_has_messages _bs_admin_messages
-    unset -f _bs_header _bs_system_info _bs_interactive_sessions _bs_positron_vscode _bs_contact_info
+    unset -f _bs_header _bs_system_info _bs_interactive_sessions _bs_positron_vscode _bs_quota _bs_contact_info
 }
 
 __bodhi_splash_main "$@"
