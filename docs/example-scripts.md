@@ -123,10 +123,11 @@ Complete before/after examples for common job types. Each example shows the full
     #!/bin/bash
     #SBATCH --job-name=gpu_train
     #SBATCH --partition=gpu
+    #SBATCH --account=<your_gpu_account>
     #SBATCH --time=24:00:00
     #SBATCH --cpus-per-task=4
     #SBATCH --mem=32G
-    #SBATCH --gpus=1
+    #SBATCH --gres=gpu:1
     #SBATCH --output=train.%j.out
     #SBATCH --error=train.%j.err
 
@@ -140,6 +141,9 @@ Complete before/after examples for common job types. Each example shows the full
         --batch-size 64 \
         --gpus 1
     ```
+
+!!! note "GPU partition requires an account"
+    The `gpu` partition is gated by `AllowAccounts`. You must pass `--account=<your_gpu_account>` or submissions will be rejected. See the [GPU Jobs](gpu.md) guide for details on hardware, limits, and requesting access.
 
 ## Job with dependencies
 

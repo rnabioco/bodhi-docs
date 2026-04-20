@@ -124,3 +124,88 @@ scontrol reconfigure
 scontrol show partition interactive
 sacctmgr show qos interactive format=Name,MaxJobsPerUser
 ```
+
+## GPU partition
+
+The `gpu` partition fronts Bodhi's GPU nodes (`compgpu01`, `compgpu03` — 64 CPUs + 4 × NVIDIA A30 each). User-facing documentation lives at [GPU Jobs](gpu.md); this section covers the admin-side configuration.
+
+### slurm.conf
+
+```conf
+PartitionName=gpu Nodes=compgpu[01,03] Default=NO State=UP \
+    DefaultTime=12:00:00 \
+    AllowAccounts=gpu_rbi,gpu_devbio \
+    AllowQos=normal,long QOS=normal \
+    DefMemPerNode=12000 \
+    DefCpuPerGPU=16 \
+    MaxCPUsPerNode=16
+```
+
+| Parameter | Value | Purpose |
+|---|---|---|
+| `Nodes` | `compgpu[01,03]` | The two GPU nodes in the cluster |
+| `Default` | `NO` | Users must request `-p gpu` explicitly |
+| `DefaultTime` | `12:00:00` | 12-hour default wall time |
+| `AllowAccounts` | `gpu_rbi,gpu_devbio` | Explicit allow-list — users in any other account are rejected |
+| `AllowQos` / `QOS` | `normal,long` / `normal` | `long` is opt-in for extended runs |
+| `DefMemPerNode` | `12000` | 12 GB default memory (users should override) |
+| `DefCpuPerGPU` | `16` | 1/4 of a node's 64 CPUs per GPU by default |
+| `MaxCPUsPerNode` | `16` | Hard cap: one job can't exceed 16 CPUs on any single gpu node |
+
+!!! warning "AllowAccounts is an allow-list"
+    Adding a new Slurm account (see [Per-account GPU limits](#per-account-gpu-limits) below) **does not** automatically grant it access to the `gpu` partition. You must also add the account to `AllowAccounts` in `slurm.conf` and run `scontrol reconfigure`.
+
+### Apply and verify
+
+```bash
+scontrol reconfigure
+scontrol show partition gpu | grep -E "AllowAccounts|DefCpuPerGPU|MaxCPUsPerNode|DefaultTime|DefMemPerNode"
+```
+
+### Granting a new group access
+
+Three steps, in order:
+
+1. **Create the Slurm account** (see [Per-account GPU limits](#per-account-gpu-limits)).
+2. **Add the account to `AllowAccounts`** in `slurm.conf`, then `scontrol reconfigure`.
+3. **Tell users** to submit with `-p gpu -A <account>` and `--gres=gpu:N`.
+
+## Per-account GPU limits
+
+Use a dedicated Slurm account to grant a group of users access to the `gpu` partition with a shared GPU cap. This is cleaner than per-user limits when several users should share a quota, and it keeps the policy in one place.
+
+### Pattern: shared 1-GPU pool for a small group
+
+```bash
+# 1. Create the account
+sacctmgr add account gpu_devbio \
+  Description="GPU access for devbio group" \
+  Organization=devbio
+
+# 2. Cap the account at 1 concurrent GPU (applies to all members, shared pool)
+sacctmgr modify account gpu_devbio set GrpTRES=gres/gpu=1
+
+# 3. Add a user to the account
+sacctmgr add user gibsonty account=gpu_devbio
+```
+
+Users submit with the account flag:
+
+```bash
+srun -p gpu -A gpu_devbio --gres=gpu:1 --pty bash
+sbatch -p gpu -A gpu_devbio --gres=gpu:1 job.sh
+```
+
+### Notes
+
+- `GrpTRES` on the account is a **shared pool** across all its users. Use `MaxTRESPerUser=gres/gpu=N` if you also want a per-user ceiling within the pool.
+- Set the limit on the **account** association (no `where partition=...` clause). `sacctmgr modify ... where partition=gpu` only matches existing partition-scoped association rows, which don't exist until you create them explicitly — so without that scope the cap lands on the account's root association and is inherited by members everywhere they use GPUs.
+- Inherited limits do not re-display on child (user) rows in `sacctmgr show assoc`; they are still enforced at schedule time.
+- Default account is unaffected — users keep their existing `DefaultAccount` and must pass `-A gpu_devbio` to hit this quota.
+
+### Verify
+
+```bash
+sacctmgr show assoc account=gpu_devbio format=Account,User,Partition,GrpTRES
+sacctmgr show user gibsonty withassoc format=User,Account,DefaultAccount,Partition
+```
