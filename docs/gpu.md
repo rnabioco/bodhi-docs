@@ -98,11 +98,7 @@ sbatch -p gpu -A <your_account> --gres=gpu:2 gpu_job.sh
 # gets 2 GPUs + 32 CPUs by default
 ```
 
-You can also pin a specific GPU model (only `a30` today, but syntax for the future):
-
-```bash
-sbatch --gres=gpu:a30:1 -p gpu -A <your_account> gpu_job.sh
-```
+All GPUs on Bodhi are currently NVIDIA A30s, so `--gres=gpu:N` is sufficient — there is no need to name a specific model.
 
 ## Limits to keep in mind
 
