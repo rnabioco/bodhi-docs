@@ -14,7 +14,7 @@ Every `#BSUB` directive in your LSF scripts has a SLURM equivalent using `#SBATC
 | Combine stdout/stderr | `-o output.%J` (default) | `--output=output.%j` | SLURM merges by default when `--error` is omitted |
 | Memory per job | `-M 4000` | `--mem=4G` | LSF uses KB by default; SLURM uses MB (suffix `G` for GB) |
 | Memory per core | `-R "rusage[mem=4000]"` | `--mem-per-cpu=4G` | |
-| Number of cores | `-n 4` | `--ntasks=4` or `--cpus-per-task=4` | Use `--cpus-per-task` for threaded jobs |
+| Number of cores | `-n 4` | `--ntasks=4` or `--cpus-per-task=4` | Use `--cpus-per-task` for threaded jobs — see [Tasks vs CPUs](pain-points.md#tasks-vs-cpus-ntasks-vs-cpus-per-task) |
 | Number of nodes | `-R "span[hosts=1]"` | `--nodes=1` | |
 | Exclusive node | `-x` | `--exclusive` | |
 | GPU request | `-R "rusage[ngpus_physical=1]"` | `--gpus=1` or `--gres=gpu:1` | Syntax varies by cluster config |

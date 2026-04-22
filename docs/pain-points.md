@@ -78,6 +78,65 @@ sstat -j <jobid> --format=JobID,MaxRSS,MaxVMSize
 
 ---
 
+## Tasks vs CPUs: `--ntasks` vs `--cpus-per-task`
+
+LSF's `-n N` meant one thing: "give me N cores." SLURM splits that same idea into two separate flags, and picking the wrong one is one of the most common migration mistakes on Bodhi.
+
+### The framing difference
+
+SLURM distinguishes between *processes* and *threads within a process*:
+
+- **`--ntasks=N`** — how many independent processes your job will launch (think MPI ranks, or N separate commands)
+- **`--cpus-per-task=N`** — how many threads/cores each of those processes will use
+
+The total cores allocated to your job is `ntasks × cpus-per-task`. Both flags default to `1`, so a bare `sbatch` with no CPU flags gets you exactly one core.
+
+!!! warning "This is different from LSF"
+    LSF `-n 8` almost always maps to `--cpus-per-task=8`, **not** `--ntasks=8`. Almost all bioinformatics tools (`samtools`, `bwa`, `STAR`, `R` `mclapply`, anything using OpenMP) are *threaded*, not MPI. If you set `--ntasks=8` for a threaded tool, SLURM reserves 8 slots but your tool only uses one of them — you get slower scheduling *and* worse performance.
+
+### Which flag do I use?
+
+| Your job | Use | Example |
+|---|---|---|
+| Single-threaded serial | neither (defaults) | `python script.py` |
+| Multi-threaded (`-@`, `-t`, `--threads`, OpenMP) | `--cpus-per-task=N` | `samtools sort -@ 8` |
+| MPI (`mpirun`, `mpiexec`) | `--ntasks=N` | `mpirun ./mpi_app` |
+| Embarrassingly parallel via `srun` or GNU parallel | `--ntasks=N` | N independent shell commands |
+| Hybrid MPI + threads | both | `--ntasks=4 --cpus-per-task=8` |
+
+### Behavioral consequences
+
+**What `srun` does with each flag.** `srun cmd` with `--ntasks=N` launches N copies of `cmd` in parallel. `srun cmd` with `--cpus-per-task=N --ntasks=1` launches one copy of `cmd` and hands it N cores — `cmd` itself is responsible for spawning threads to use them.
+
+**What environment variable your tool sees.** SLURM exports `$SLURM_NTASKS` and `$SLURM_CPUS_PER_TASK`. A common idiom for threaded tools:
+
+```bash
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16G
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+samtools sort -@ $SLURM_CPUS_PER_TASK input.bam -o sorted.bam
+```
+
+**Node placement.** `--ntasks` tasks may be spread across multiple nodes unless you also set `--nodes=1`. `--cpus-per-task` cores are always on the same node — a single process can't span nodes.
+
+### Memory interaction
+
+`--mem` is per-job (total). `--mem-per-cpu` multiplies by the *total* cores (`ntasks × cpus-per-task`):
+
+```bash
+#SBATCH --ntasks=4
+#SBATCH --cpus-per-task=8
+#SBATCH --mem-per-cpu=2G    # 4 × 8 × 2G = 64 GB total
+```
+
+!!! tip "Quick self-check"
+    - If your tool has a `--threads`, `-t`, `-@`, or `-p` flag, you want `--cpus-per-task=N`.
+    - If you're launching `mpirun` or `mpiexec`, you want `--ntasks=N`.
+    - If in doubt, `--cpus-per-task` is the right default for typical bioinformatics work on Bodhi.
+
+---
+
 ## Understanding SLURM accounts
 
 ### What is `--account`?
