@@ -21,6 +21,7 @@ scontrol create reservation \
 - **`Flags=MAINT`** tells the backfill scheduler not to schedule jobs that would overlap with the reservation. Jobs already running that finish before the start time are unaffected.
 - Users can see the upcoming reservation with `scontrol show reservation`.
 - Jobs whose wall time would bleed into the reservation window won't start until after it ends.
+- The reservation also drives the [login-splash maintenance banner](login-splash.md#maintenance-banner): once it's created, the countdown shown to users tracks the reservation's `StartTime`. With no `MAINT` reservation, the banner falls back to the last Thursday of the month, so the two stay in sync automatically.
 
 ### Useful reservation flags
 

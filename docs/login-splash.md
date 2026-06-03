@@ -35,7 +35,11 @@ Cluster maintenance is scheduled for the **last Thursday of every month**. The b
 | Day of maintenance | **Red** background | "MAINTENANCE TODAY: Thursday, March 26, 2026" |
 | More than 5 days out | No banner | — |
 
-No configuration is needed — the script calculates the next last-Thursday automatically.
+The banner date comes from the soonest upcoming SLURM `MAINT` reservation when
+one is scheduled (see [admin guide](admin.md#scheduling-maintenance)), so it
+always reflects the real maintenance window. If no reservation is queryable, the
+script falls back to calculating the next last-Thursday automatically. Either
+way, no per-login configuration is needed.
 
 ## Admin messages
 
