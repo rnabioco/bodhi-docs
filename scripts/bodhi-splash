@@ -193,8 +193,51 @@ __bodhi_splash_main() {
         date -d "${y}-${m}-${target_day}" +%s
     }
 
+    # Soonest upcoming MAINT reservation, if Slurm has one. This is the source
+    # of truth for the maintenance date and matches how sinteractive's
+    # check_maintenance_window() selects the window. Echoes the epoch and
+    # returns 0 on success; returns 1 (fail open to the computed default) when
+    # scontrol is unavailable/slow, there's no future MAINT reservation, or a
+    # debug date is being simulated.
+    _bs_reservation_maintenance_epoch() {
+        # Honor simulated dates for offline, deterministic testing.
+        [[ -n "${_BODHI_DEBUG_DATE:-}" ]] && return 1
+
+        local resv_out
+        # timeout guards login latency against a slow/hung slurmctld.
+        resv_out=$(timeout 2s scontrol show reservation -o 2>/dev/null) || return 1
+        [[ -z "$resv_out" ]] && return 1
+        [[ "$resv_out" == "No reservations"* ]] && return 1
+
+        local now_epoch best_epoch=0
+        now_epoch=$(_bs_now_epoch)
+
+        local line start_epoch
+        while IFS= read -r line; do
+            [[ "$line" =~ Flags=[^[:space:]]*MAINT ]] || continue
+            [[ "$line" =~ StartTime=([^[:space:]]+) ]] || continue
+            start_epoch=$(date -d "${BASH_REMATCH[1]}" +%s 2>/dev/null) || continue
+            (( start_epoch > now_epoch )) || continue
+            if (( best_epoch == 0 || start_epoch < best_epoch )); then
+                best_epoch=$start_epoch
+            fi
+        done <<<"$resv_out"
+
+        (( best_epoch == 0 )) && return 1
+        echo "$best_epoch"
+        return 0
+    }
+
     _bs_get_next_maintenance() {
-        local today_str today_epoch year month maint_epoch
+        local today_str today_epoch year month maint_epoch resv_epoch
+
+        # Prefer a scheduled Slurm MAINT reservation; fall back to the computed
+        # last-Thursday-of-the-month default below.
+        if resv_epoch=$(_bs_reservation_maintenance_epoch); then
+            echo "$resv_epoch"
+            return 0
+        fi
+
         today_str=$(_bs_today_str)
         today_epoch=$(date -d "$today_str" +%s)
         year=$(date -d "$today_str" +%Y)
