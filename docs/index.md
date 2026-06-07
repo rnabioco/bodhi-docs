@@ -25,6 +25,15 @@ Bodhi has migrated from IBM Spectrum LSF to **SLURM**. Our SLURM documentation c
 
 - [**Remote SSH Setup**](https://rnabioco.github.io/remote-ssh-positron/) — using Positron or VSCode over remote SSH
 
+!!! note "Existing users: redeploy to land on the `positron` partition"
+    The launcher was updated on 2026-03-29 to submit jobs to the dedicated `positron` partition (was previously landing in `normal`). If you set up Positron Remote SSH before then, refresh your copy once:
+
+    ```bash
+    cd ~/devel/rnabioco/remote-ssh-positron && git pull && make install
+    ```
+
+    Verify with `squeue --me` after launching a new session — the job should show `Partition=positron`.
+
 ## Backups
 
 Guidelines for backing up your data on the Bodhi cluster.

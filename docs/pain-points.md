@@ -289,6 +289,7 @@ squeue -j $SLURM_JOB_ID -h -o "%L"
 | `bigmem` | 3 days | **4 hours** | compute14 | `bigmem` | ~1.5 TB RAM |
 | `rstudio` | 3 days | **8 hours** | compute00 | `bigmem` | Interactive RStudio |
 | `voila` | 3 days | **4 hours** | compute00 | `bigmem` | Voilà notebooks |
+| `positron` | 1 day | **8 hours** | compute04, 06–07, 14 | `rbi` | Positron Remote SSH; QoS cap 8 CPU / 24 GB per user |
 
 !!! warning "Default wall time changed — jobs may time out"
     If you omit `--time`, your job now gets **4 hours** (general partitions) or **12 hours** (GPU partitions). Previously, jobs without `--time` silently inherited the 3-day maximum.
