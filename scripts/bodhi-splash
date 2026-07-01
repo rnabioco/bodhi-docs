@@ -49,10 +49,27 @@ __bodhi_splash_main() {
         _old_stty=$(stty -g 2>/dev/null) || return 1
         stty -echo -icanon 2>/dev/null || return 1
 
-        printf '\e]11;?\a' > /dev/tty 2>/dev/null
-        # Read up to BEL; rely on -t timeout rather than rc (ST-terminated
-        # replies time out but still populate the variable with partial data).
-        IFS= read -rs -t 0.15 -d $'\a' _response < /dev/tty
+        # Query the background (OSC 11) immediately followed by a Primary Device
+        # Attributes request (CSI c). Terminals answer DA1 quickly and in order,
+        # so the DA1 reply acts as a synchronization barrier: once we have read
+        # it, the earlier OSC 11 reply is guaranteed already consumed while echo
+        # is still off. A fixed read timeout instead races the round-trip over
+        # SSH -- a slow OSC 11 reply arriving after echo is restored leaks to the
+        # screen as ^[]11;rgb:...^G.
+        printf '\e]11;?\a\e[c' > /dev/tty 2>/dev/null
+        _response=''
+        local _ch
+        # Bounded per-byte read: a responsive terminal returns as soon as the
+        # DA1 reply arrives; -t only fully elapses if the terminal answers OSC 11
+        # but not DA1 (rare) or nothing at all.
+        while IFS= read -rs -t 1 -N 1 _ch; do
+            _response+="$_ch"
+            # DA1 replies are a CSI sequence terminated by 'c' (e.g. ESC [ ? 62 c).
+            # 'c' is also a hex digit that can appear in the OSC 11 rgb: payload,
+            # but that payload is introduced by ESC ] (not ESC [), so only treat
+            # 'c' as the terminator once a CSI introducer has been seen.
+            [[ "$_ch" == "c" && "$_response" == *$'\e['* ]] && break
+        done < /dev/tty
 
         stty "$_old_stty" 2>/dev/null
 
