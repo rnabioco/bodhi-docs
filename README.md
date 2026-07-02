@@ -16,6 +16,21 @@ pixi run docs
 pixi run build
 ```
 
+## Installing the scripts
+
+The `sinteractive` and `bodhi-splash` helpers install via `make`:
+
+```bash
+# Per-user install (default): copies into ~/.local/bin
+make install
+
+# System-wide install (as root): sinteractive to /usr/local/bin and the
+# login splash to /etc/profile.d/bodhi-splash.sh
+sudo make install
+```
+
+Override the per-user location with `PREFIX`, e.g. `make install PREFIX=~/bin`.
+
 ## Converter script
 
 A sed-based helper that converts common `#BSUB` directives and `$LSB_*` variables to SLURM equivalents:
