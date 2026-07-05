@@ -22,3 +22,6 @@ Thumbs.db
 # Slurm logs
 slurm-*.out
 slurm-*.err
+
+# Local shell secrets (never commit)
+.bashrc.local

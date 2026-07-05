@@ -1,0 +1,53 @@
+# Starship prompt — bash on Ghostty, starship 1.24+
+# Copy to ~/.config/starship.toml
+#
+# Keeps the stock starship look you like:
+#   jhessel @ bodhi bodhi-docs on  main [!?] via 🧚 v0.70.2
+#   ❯
+# and layers in three functional improvements:
+#   - command_timeout 1500ms  (git status drops instead of hanging in huge NFS repos)
+#   - a Slurm job segment      (●job:<id> only inside an allocation)
+#   - cmd_duration on the right prompt (keeps line 1 clean)
+
+command_timeout = 1500   # was 50000
+
+# Default module order/styles, with cmd_duration pulled out to the right prompt
+# and the Slurm segment inserted before the line break.
+format = """
+$username\
+$hostname\
+$directory\
+$git_branch\
+$git_status\
+$pixi\
+${custom.slurm}\
+$line_break\
+$character"""
+
+right_format = "$cmd_duration"
+
+[hostname]
+ssh_only = false
+format = "[$hostname]($style) "
+aliases = { "amc-bodhi" = "bodhi", "jhessel" = "jay" }
+
+[username]
+show_always = false
+format = "[$user]($style) @ "
+
+# Show ●job:<id> only inside a Slurm allocation (srun/salloc/sbatch shell),
+# so a compute-node shell is distinguishable from the head node.
+[custom.slurm]
+when = '[ -n "$SLURM_JOB_ID" ]'
+command = 'echo "$SLURM_JOB_ID"'
+format = "[●job:$output]($style) "
+style = "bold yellow"
+shell = ["bash", "--noprofile", "--norc"]
+
+[cmd_duration]
+min_time = 2000
+format = "[$duration]($style)"
+style = "yellow"
+
+[rlang]
+disabled = true

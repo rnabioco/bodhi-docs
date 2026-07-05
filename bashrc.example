@@ -1,0 +1,93 @@
+# Example ~/.bashrc for the Bodhi cluster (Slurm)
+# Anonymized — replace <username>, hostnames, and account/queue names for your
+# own account. Secrets (API tokens, etc.) intentionally omitted: keep those in
+# ~/.bashrc.local (sourced at the end) and never commit them.
+
+export TERM=xterm-256color
+
+# Accept a working directory pushed over SSH (e.g. from an editor remote)
+if [ -n "$SSH_PWD" ] && [ -d "$SSH_PWD" ]; then
+   cd "$SSH_PWD"
+   unset SSH_PWD
+fi
+
+### Functions ---------------------------------------------------------------
+
+# ls after every cd
+cd() {
+  builtin cd "$@"
+  ls -F --color=auto
+}
+
+histgrep() {
+    grep "$@" ~/.history/*
+    history | grep "$@"
+}
+
+today() {
+    date "+%Y-%m-%d"
+}
+
+### Aliases -----------------------------------------------------------------
+
+alias q='exit'
+alias df='df -h'
+alias la='ls -F -a --color=auto'
+alias ls='ls -F --color=auto'
+alias ll='ls -hF -l --color=auto'
+alias lll='ls -hF -la --color=auto'
+alias lr='ls -hF -lagFqt --color=auto | head'
+alias rm='rm -i'
+alias gzcat='zcat'
+
+# SSH shortcuts — replace hostnames/usernames with your own
+alias bodhi='ssh <cluster-head-node>'
+# alias alpine="ssh <username>@<other-cluster-login>"
+
+### Environment modules -----------------------------------------------------
+
+if ! [ -z "$MODULESHOME" ]; then
+    module load modules-init
+    # module load gcc/10.1.0
+fi
+
+### PATH --------------------------------------------------------------------
+
+PATH=${HOME}/bin:${HOME}/.local/bin:${PATH}
+export HDF5_PLUGIN_PATH=$HOME/.local/hdf5/lib/plugin
+
+# Rust / cargo
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# pixi
+export PATH="${HOME}/.pixi/bin:$PATH"
+export PIXI_CACHE_DIR=/tmp/pixi-cache-${USER}
+
+### Slurm -------------------------------------------------------------------
+
+export PATH="/cluster/slurm-25.11.2/bin:/cluster/slurm-25.11.2/sbin:$PATH"
+export SBATCH_ACCOUNT="<account>"
+export SBATCH_PARTITION="<partition>"
+
+# my jobs
+alias sq='squeue -u $USER -o "%.10i %.9P %.30j %.8u %.2t %.10M %.10L %.4C %.8m %R"'
+# my jobs, live-refreshing (needs hwatch)
+alias wsq='hwatch -n 5 "squeue -u \$USER -o \"%.10i %.9P %.50k %.8T %.10M %.10L %.6D %.4C %.8m %R %.10Q\""'
+# another user's jobs, live-refreshing:  wsqu <username>
+wsqu() {
+    local user="${1:?Usage: wsqu <username>}"
+    hwatch -n 5 "squeue -u $user -o \"%.10i %.9P %.50k %.8T %.10M %.10L %.6D %.4C %.8m %R %.10Q\""
+}
+
+### Node / direnv / prompt --------------------------------------------------
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+command -v direnv   >/dev/null && eval "$(direnv hook bash)"
+command -v starship >/dev/null && eval "$(starship init bash)"
+
+### Local secrets (not committed) -------------------------------------------
+# Put tokens/keys here, e.g. export NETLIFY_AUTH_TOKEN=...
+[ -f "$HOME/.bashrc.local" ] && . "$HOME/.bashrc.local"
