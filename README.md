@@ -31,6 +31,15 @@ sudo make install
 
 Override the per-user location with `PREFIX`, e.g. `make install PREFIX=~/bin`.
 
+There is also a [Claude Code skill](skills/bodhi-compute/SKILL.md) that teaches
+agents to run compute work through `sinteractive` (headless launch, `srun
+--overlap`, time budgets) instead of on the login node:
+
+```bash
+# Per-user: copies to ~/.claude/skills/bodhi-compute
+make skill-install
+```
+
 ## Upgrading tmux
 
 `sinteractive` runs `tmux` **on the allocated compute node**, and `/usr/local`
