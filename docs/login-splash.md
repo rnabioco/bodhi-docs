@@ -16,8 +16,8 @@ The `bodhi-splash` script displays a login splash screen with system information
 │ Uptime:   102 days, 18:26                                            │
 │ Load:     1.58, 1.81, 1.63                                           │
 ├──────────────────────────────────────────────────────────────────────┤
-│ >>> New GPU partition available                                       │
-│     The 'a100' partition is now available for jobs.                   │
+│ >>> Multi-day GPU runs available                                     │
+│     Use --qos=gpu_long on the gpu partition (3 days).                │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Help:  David Farrell                                                 │
 │ Docs:  https://rnabioco.github.io/bodhi-docs/                       │
@@ -55,8 +55,8 @@ sudo mkdir -p /etc/bodhi/motd.d
 
 # Add a message
 sudo tee /etc/bodhi/motd.d/01-gpu-partition.txt << 'EOF'
-New GPU partition available
-The 'a100' partition is now available for jobs.
+Multi-day GPU runs available
+Use --qos=gpu_long on the gpu partition for up to 3 days.
 Request access via ServiceNow.
 EOF
 

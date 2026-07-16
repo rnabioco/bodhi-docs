@@ -7,9 +7,13 @@ The `gpu` partition provides access to Bodhi's GPU nodes. This page covers the h
 | Node | CPUs | GPUs | GPU model |
 |---|---|---|---|
 | `compgpu01` | 64 | 4 | NVIDIA A30 |
+| `compgpu02` | 64 | 4 | NVIDIA A30 |
 | `compgpu03` | 64 | 4 | NVIDIA A30 |
 
-Total: **2 nodes, 128 CPUs, 8 A30 GPUs**.
+Total: **3 nodes, 192 CPUs, 12 A30 GPUs**.
+
+!!! note "`compgpu02` is shared with an owner partition"
+    `compgpu02` also belongs to `scb_gpu`, which has first claim on it. Your `gpu` job can still land there, but it queues behind `scb_gpu` work. Running jobs are never preempted — they finish normally.
 
 Check the live state anytime:
 
@@ -23,11 +27,11 @@ scontrol show node compgpu01 | grep -E "CPUTot|Gres|RealMemory"
 | Setting | Value | Notes |
 |---|---|---|
 | Default runtime | `12:00:00` | If you don't specify `--time`, you get 12 hours |
-| Max runtime | Set by QOS | Use `--qos=long` for extended runs |
-| Allowed QOS | `normal`, `long` | Default QOS is `normal` |
+| Max runtime | **1 day**, or **3 days** with `--qos=gpu_long` | See [Choosing a QOS](#choosing-a-qos) |
+| Allowed QOS | `normal`, `high`, `gpu_long` | Default QOS is `normal` |
 | Default memory | `12 GB / node` | Override with `--mem` |
 | Default CPUs per GPU | `16` | If you don't set `--cpus-per-task`, you get 16 CPUs for each GPU you request |
-| Max CPUs per node per job | `16` | A single job cannot exceed 16 CPUs on one gpu node — request additional GPUs (and more nodes) for more CPUs |
+| Max CPUs per node per job | *(no limit)* | You may request up to all 64 CPUs on a node, but large requests wait longer for a free node |
 | Default partition? | No | You must pass `-p gpu` explicitly |
 
 !!! warning "Account required"
@@ -81,13 +85,35 @@ mkdir -p logs
 sbatch gpu_job.sh
 ```
 
-### Longer jobs (`--qos=long`)
+## Choosing a QOS
 
-The default QOS (`normal`) imposes a shorter wall-time ceiling. For extended training runs, request the `long` QOS:
+Most jobs need nothing here — the default (`normal`) covers anything up to **1 day**. Reach for `gpu_long` only when a single run genuinely needs more than that.
+
+| QOS | Max walltime | Per-user limits | Fairshare cost | How to request |
+|---|---|---|---|---|
+| `normal` | 1 day | 8 GPUs, 8 jobs | 1× | *(default — nothing to pass)* |
+| `high` | 1 day | 10 jobs | 1× | `--qos=high` (restricted grant) |
+| `gpu_long` | **3 days** | **1 job, 1 GPU** | **2×** | `--qos=gpu_long` |
+
+!!! warning "`--qos=long` does not work on the `gpu` partition"
+    `long` is not on this partition's allow-list and will be rejected with `Invalid qos specification`. For multi-day GPU runs use `--qos=gpu_long`. (`--qos=long` remains correct on `scb_gpu` for `gpu_scb` owners.)
+
+### Multi-day runs (`--qos=gpu_long`)
+
+For a training run or basecalling job that needs more than 24 hours:
 
 ```bash
-sbatch --qos=long --time=72:00:00 -p gpu -A <your_account> gpu_job.sh
+sbatch --qos=gpu_long --time=3-00:00:00 -p gpu -A <your_account> --gres=gpu:1 gpu_job.sh
 ```
+
+`gpu_long` is deliberately throttled, because a multi-day job holds a shared GPU for a long time:
+
+- **One at a time.** One running job holding one GPU. A second `gpu_long` submission is rejected while the first runs.
+- **Capped fleet-wide.** All `gpu_long` jobs together can hold at most 4 of the 12 GPUs, so long runs can never crowd out short and interactive work.
+- **Costs double fairshare.** Usage is charged at 2×, which lowers the priority of *all* your later jobs (CPU and GPU) for roughly a week. Prefer checkpointing and a series of shorter jobs where your software supports it.
+- **Lower queue priority** than `normal`, so it yields to normal-length work.
+
+Access is granted per user. If you get `Invalid qos specification`, ask an admin to add `gpu_long` to your account association.
 
 ### Requesting more than one GPU
 
@@ -102,9 +128,10 @@ All GPUs on Bodhi are currently NVIDIA A30s, so `--gres=gpu:N` is sufficient —
 
 ## Limits to keep in mind
 
-- **CPU cap per job per node is `16`.** A multi-GPU job that wants more total CPUs must spread across both gpu nodes (`--nodes=2 --ntasks-per-node=...`) or stay within the 16-CPU-per-node cap.
+- **You get 16 CPUs per GPU by default**, via `DefCpuPerGPU`. This is a *default*, not a cap — `--cpus-per-task=32` (or more) is accepted. Bear in mind that the more CPUs you ask for, the longer you wait for a node with that many free.
 - **Memory default is low (12 GB).** Always set `--mem` explicitly for real workloads.
-- **Per-account GPU caps exist.** Some accounts are limited to a shared pool of GPUs (e.g., 1 concurrent GPU for the whole account). If your job is stuck in `PENDING` with reason `QOSGrpGRES` or `AssocGrpGRES`, another user on your account is already holding the group's GPUs.
+- **Wall-time is capped at 1 day** unless you opt into [`--qos=gpu_long`](#choosing-a-qos) for up to 3 days.
+- **Per-account GPU caps exist.** `gpu_devbio` is limited to **1 concurrent GPU for the whole account**; `gpu_rbi` and `gpu_scb` are uncapped at the account level. If your job is stuck in `PENDING` with reason `QOSGrpGRES` or `AssocGrpGRES`, someone on your account is already holding the group's GPUs.
 
 ## Requesting access
 
@@ -144,8 +171,10 @@ After a job ends, `seff <jobid>` summarizes CPU and memory efficiency (GPU effic
 
 | Symptom | Likely cause |
 |---|---|
-| `Invalid account or account/partition combination` | Your account is not on `gpu`'s `AllowAccounts` list — ask an admin |
-| Job stuck `PENDING`, reason `QOSGrpGRES` | Another job on your account is holding the group's GPU quota |
-| Job stuck `PENDING`, reason `Resources` | No GPU currently free — wait or request fewer |
-| `Requested node configuration is not available` | You asked for more CPUs than `MaxCPUsPerNode=16` on one node, or an unknown GPU model |
+| `Invalid account or account/partition combination` | Your account is not on `gpu`'s `AllowAccounts` list. Note your *default* account may not be your GPU account — pass `-A <your_gpu_account>` explicitly |
+| `Invalid qos specification` | Either you used `--qos=long` (not allowed here — use `--qos=gpu_long`), or `gpu_long` is not yet granted to your account association — ask an admin |
+| `QOSMaxWallDurationPerJobLimit` | You asked for more than 1 day without `--qos=gpu_long` |
+| `QOSMaxJobsPerUserLimit` on a `gpu_long` job | You already have a `gpu_long` job running — only one at a time |
+| Job stuck `PENDING`, reason `QOSGrpGRES` | Another job on your account is holding the group's GPU quota, or `gpu_long` is at its 4-GPU fleet-wide cap |
+| Job stuck `PENDING`, reason `Resources` | No GPU currently free — wait, or request fewer GPUs/CPUs |
 | `nvidia-smi` shows no GPU | You forgot `--gres=gpu:N` — the `gpu` partition does not auto-allocate GPUs |
