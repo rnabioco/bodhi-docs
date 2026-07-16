@@ -18,7 +18,7 @@ Every `#BSUB` directive in your LSF scripts has a SLURM equivalent using `#SBATC
 | Number of nodes | `-R "span[hosts=1]"` | `--nodes=1` | |
 | Exclusive node | `-x` | `--exclusive` | |
 | GPU request | `-R "rusage[ngpus_physical=1]"` | `--gpus=1` or `--gres=gpu:1` | Syntax varies by cluster config |
-| GPU type | `-R "select[ngpus_physical>0] rusage[ngpus_physical=1]" -q gpu` | `--gpus=a100:1` or `--gres=gpu:a100:1` | |
+| GPU type | `-R "select[ngpus_physical>0] rusage[ngpus_physical=1]" -q gpu` | `--gres=gpu:1` | All Bodhi GPUs are A30s, so naming a model is unnecessary |
 | Job array | `-J "myJob[1-100]"` | `--array=1-100` | See [Job Arrays](job-arrays.md) |
 | Array concurrency limit | `-J "myJob[1-100]%10"` | `--array=1-100%10` | Max simultaneous tasks |
 | Dependency (after OK) | `-w "done(12345)"` | `--dependency=afterok:12345` | |

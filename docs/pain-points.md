@@ -71,7 +71,11 @@ sstat -j <jobid> --format=JobID,MaxRSS,MaxVMSize
     ```
 
 !!! info "Default memory when `--mem` is not specified"
-    Bodhi's default is `DefMemPerCPU=4000` (4 GB per CPU). So a job requesting `--cpus-per-task=4` with no `--mem` gets 16 GB total. A single-CPU job gets 4 GB.
+    On every batch partition you get **12 GB per node**, regardless of how many CPUs you ask for. Each partition sets `DefMemPerNode=12000`, and that takes precedence over the cluster-wide `DefMemPerCPU=4000`.
+
+    The 4 GB-per-CPU rule applies only on `interactive` and `positron`, which set no per-node default — there, `--cpus-per-task=4` with no `--mem` does get 16 GB.
+
+    Either way the default is low. Set `--mem` explicitly for real workloads.
 
 !!! note "Don't just request the maximum"
     Requesting far more memory than you need reduces scheduling priority and wastes cluster resources. Right-size your requests based on actual usage from `seff`.
@@ -275,21 +279,26 @@ squeue -j $SLURM_JOB_ID -h -o "%L"
 
 ### Bodhi partition time limits
 
+The "max wall time" below is what you can actually request. On the CPU partitions it comes from the `normal` QoS, not the partition — see [QoS tiers](#qos-tiers) for how the two interact.
+
 | Partition | Max wall time | Default wall time | Nodes | Access | Notes |
 |---|---|---|---|---|---|
-| `normal` | 3 days | **4 hours** | compute01–04, 06–07, 14 | All accounts | Default partition |
-| `interactive` | 1 day | 8 hours | compute03–04, 06–07 | All accounts | Max 3 jobs/user |
-| `rna` | 3 days | **4 hours** | compute07–09, 15–20 | `rbi` | Falls back to `normal` |
-| `jones` | 3 days | **4 hours** | compute04–05, 10–12 | `jones` | |
-| `genome` | 3 days | **4 hours** | compute06–09 | `genome` | Falls back to `normal` |
-| `gpu` | 3 days | **12 hours** | compgpu01, 03 | `gpu_rbi` | 8× NVIDIA A30 |
-| `scb_gpu` | 3 days | **12 hours** | compgpu02 | `gpu_scb` | 4× NVIDIA A30 |
-| `scb` | 3 days | **4 hours** | compute13 | `scb` | |
-| `cranio` | 3 days | **4 hours** | compute21 | `scb` | Falls back to `normal` |
-| `bigmem` | 3 days | **4 hours** | compute14 | `bigmem` | ~1.5 TB RAM |
-| `rstudio` | 3 days | **8 hours** | compute00 | `bigmem` | Interactive RStudio |
-| `voila` | 3 days | **4 hours** | compute00 | `bigmem` | Voilà notebooks |
-| `positron` | 1 day | **8 hours** | compute04, 06–07, 14 | `rbi` | Positron Remote SSH; QoS cap 8 CPU / 24 GB per user |
+| `normal` | 3 days (7 with `--qos=long`) | **4 hours** | compute01–04, 06–07, 14 | All accounts | Default partition |
+| `interactive` | 2 days | 8 hours | compute04, 06–07 | All accounts | Effectively 3 jobs/user |
+| `rna` | 3 days (7 with `--qos=long`) | **4 hours** | compute07–09, 13–21 | `rbi` | Falls back to `normal` |
+| `jones` | 3 days (7 with `--qos=long`) | **4 hours** | compute04–05, 10–12 | `jones` | Also allows `high` |
+| `genome` | 3 days (7 with `--qos=long`) | **4 hours** | compute06–09 | `genome` | Falls back to `normal` |
+| `gpu` | **1 day** (3 with `--qos=gpu_long`) | **12 hours** | compgpu01–03 | `gpu_rbi`, `gpu_devbio`, `gpu_scb` | 12× NVIDIA A30. See [GPU Jobs](gpu.md) |
+| `scb_gpu` | 3 days | **12 hours** | compgpu02 | `gpu_scb` | 4× NVIDIA A30; owner priority |
+| `scb` | 3 days (7 with `--qos=long`) | **4 hours** | compute13 | `scb` | |
+| `cranio` | 3 days (7 with `--qos=long`) | **4 hours** | compute21 | `scb` | Falls back to `normal` |
+| `bigmem` | 3 days (7 with `--qos=long`) | **4 hours** | compute14 | `bigmem` | ~1.5 TB RAM |
+| `rstudio` | 3 days (7 with `--qos=long`) | **8 hours** | compute00 | `bigmem` | Interactive RStudio |
+| `voila` | 3 days (7 with `--qos=long`) | **4 hours** | compute00 | `bigmem` | Voilà notebooks |
+| `positron` | 1 day | **8 hours** | compute04, 06–07, 14 | All accounts | Positron Remote SSH; 1 job/user |
+
+!!! warning "The `gpu` partition is the exception"
+    `gpu` is the only partition whose wall-time ceiling is enforced by the partition itself (`MaxTime=3 days`) rather than by a QoS. Its everyday 1-day cap comes from the `gpu_shared` partition QoS, and `--qos=long` does **not** work there. Use `--qos=gpu_long` for up to 3 days — see [GPU Jobs](gpu.md#choosing-a-qos).
 
 !!! warning "Default wall time changed — jobs may time out"
     If you omit `--time`, your job now gets **4 hours** (general partitions) or **12 hours** (GPU partitions). Previously, jobs without `--time` silently inherited the 3-day maximum.
@@ -356,16 +365,23 @@ SLURM Quality of Service (QoS) tiers control job priority, time limits, and reso
 
 ### Available QoS tiers
 
+These are the QoS you can request:
+
 | QoS | Priority | Max wall time | Max running jobs | Max queued jobs | Resource caps | Use case |
 |---|---|---|---|---|---|---|
 | `high` | 100 | partition limit | 10 | 20 | — | Urgent jobs — requires admin approval |
-| `long` | 50 | 7 days | 5 | 50 | 32 CPUs | Extended runs that need >1 day |
-| `interactive` | 50 | 12 hours | 3 | 3 | 16 CPUs, 8 GB | Terminal sessions via `sinteractive` |
-| `normal` | 25 | 1 day | 100 | 500 | — | Default for most jobs |
+| `long` | 50 | 7 days | 12 | 50 | 128 CPUs/user, 156 total | Extended runs that need >3 days |
+| `interactive` | 50 | 12 hours | 4 | 3 | 16 CPUs, 8 GB | Terminal sessions via `sinteractive` |
+| `normal` | 25 | **3 days** | 500 | 2000 | — | Default for most jobs |
 | `low` | 10 | 7 days | 50 | 200 | — | Background, non-urgent work |
+| `gpu_long` | 10 | 3 days | **1** | — | 1 GPU/user, 4 total; **2× fairshare** | Multi-day GPU runs — see [GPU Jobs](gpu.md#choosing-a-qos) |
+
+Slurm also applies a QoS to your job automatically based on the partition, which you never request yourself: `normal` on the CPU partitions, `gpu_shared` on `gpu` (this is what imposes its 1-day default), `gpu` on `scb_gpu`, and `positron` on `positron`. The `interactive` partition has no automatic QoS.
 
 !!! info "How priority works"
-    Higher priority QoS tiers are scheduled first. The `high` QoS can also **preempt** (requeue) running `normal` jobs when resources are needed.
+    Higher priority QoS tiers are scheduled first — QoS is the single largest priority factor on Bodhi (`PriorityWeightQOS=10000`, versus 5000 for fairshare and 1000 for age).
+
+    **Nothing preempts anything.** Preemption is disabled cluster-wide (`PreemptType=(null)`, `PreemptMode=OFF`). A higher-priority job jumps ahead in the *queue*, but running jobs are never killed or requeued to make room — they always finish naturally.
 
 ### Using a QoS
 
@@ -382,14 +398,22 @@ sbatch --qos=long myjob.sh
 
 ### When to use `long`
 
-The `normal` QoS has a 1-day time limit. If your job needs more time, use `long`:
+The default `normal` QoS caps you at **3 days**. If a job needs more than that, use `long`:
 
 ```bash
 #SBATCH --qos=long
 #SBATCH --time=5-00:00:00    # up to 7 days
 ```
 
-`long` has `OverPartQOS` — it overrides partition time limits, so you can run >1 day jobs on any partition. The tradeoff: you're limited to 5 running jobs and 32 CPUs total under `long`.
+The tradeoff: under `long` you're limited to 12 running jobs, 128 CPUs for yourself, and 156 CPUs across everyone using it at once.
+
+!!! warning "`long` does not work on the `gpu` partition"
+    `long` is not on `gpu`'s allow-list and is rejected there with `Invalid qos specification`. For multi-day GPU work use [`--qos=gpu_long`](gpu.md#choosing-a-qos) instead. (`long` is still correct on `scb_gpu` for `gpu_scb` owners.)
+
+!!! info "Why `long` can exceed the 3-day cap"
+    The CPU partitions set no wall-time limit of their own — their 3-day ceiling comes from the `normal` QoS that Slurm applies automatically. `long` carries the `OverPartQOS` flag, which lets its own 7-day `MaxWall` take precedence over that automatic QoS.
+
+    This only works because those partitions have no `MaxTime`. A partition's own `MaxTime` is an absolute ceiling that **no** QoS can exceed, `OverPartQOS` included — which is exactly why `long` cannot buy you extra time on `gpu`, where `MaxTime=3 days` is set on the partition.
 
 ### When to use `low`
 
@@ -404,7 +428,9 @@ For jobs that can wait — overnight runs, large batch submissions where turnaro
 
 ### DenyOnLimit
 
-All QoS tiers enforce `DenyOnLimit` — if your job exceeds the QoS limits (too many running jobs, too many CPUs, etc.), it is **rejected at submit time** rather than sitting in the queue forever. You'll see an immediate error telling you what limit was hit.
+Most QoS tiers enforce `DenyOnLimit` — if your job exceeds the QoS limits (too many running jobs, too many CPUs, etc.), it is **rejected at submit time** rather than sitting in the queue forever. You'll see an immediate error telling you what limit was hit.
+
+`long` is the exception: it does *not* set `DenyOnLimit`, so a `long` job that trips a limit sits `PENDING` with a reason like `QOSMaxCpuPerUserLimit` instead of being rejected. If a `long` submission seems to vanish into the queue, check `squeue -u $USER -o "%i %T %r"` for the reason.
 
 !!! tip "Check your QoS"
     ```bash

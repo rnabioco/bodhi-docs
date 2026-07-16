@@ -50,7 +50,7 @@ This page maps common LSF commands to their SLURM equivalents.
     sbatch --partition=normal --ntasks=4 --time=02:00:00 --output=out.%j myjob.sh
 
     # Submit with command directly (use --wrap)
-    sbatch --partition=short --output=out.%j --wrap="echo hello"
+    sbatch --partition=normal --output=out.%j --wrap="echo hello"
     ```
 
 !!! note "No input redirection needed"

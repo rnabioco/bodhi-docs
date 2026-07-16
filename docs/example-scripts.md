@@ -170,7 +170,7 @@ Complete before/after examples for common job types. Each example shows the full
     JOB2=$(sbatch --job-name=sort --partition=normal --time=02:00:00 --cpus-per-task=4 --dependency=afterok:$JOB1 --output=sort.%j.out sort.sh | awk '{print $4}')
 
     # Step 3: Stats (after sort completes successfully)
-    sbatch --job-name=stats --partition=short --time=00:30:00 --ntasks=1 --dependency=afterok:$JOB2 --output=stats.%j.out stats.sh
+    sbatch --job-name=stats --partition=normal --time=00:30:00 --ntasks=1 --dependency=afterok:$JOB2 --output=stats.%j.out stats.sh
     ```
 
 !!! note "Capturing the job ID"
