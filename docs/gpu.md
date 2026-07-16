@@ -113,7 +113,47 @@ sbatch --qos=gpu_long --time=3-00:00:00 -p gpu -A <your_account> --gres=gpu:1 gp
 - **Costs double fairshare.** Usage is charged at 2×, which lowers the priority of *all* your later jobs (CPU and GPU) for roughly a week. Prefer checkpointing and a series of shorter jobs where your software supports it.
 - **Lower queue priority** than `normal`, so it yields to normal-length work.
 
-Access is granted per user. If you get `Invalid qos specification`, ask an admin to add `gpu_long` to your account association.
+!!! warning "`gpu_long` must be switched on for you by an admin"
+    Being on a GPU account is **not** enough — `gpu_long` is granted per user, per account, and is off by default. Until an admin enables it, `--qos=gpu_long` fails immediately with `Invalid qos specification`. Check before you plan a long run, using the steps below.
+
+#### Check whether you have it
+
+List the QoS you hold on each of your accounts:
+
+```bash
+sacctmgr show assoc user=$USER format=Account,QOS%45
+```
+
+Look at the row for **the account you submit GPU jobs with** (the one you pass to `-A`). `gpu_long` has to appear on *that* row. Grants are per account, so it is entirely possible to hold it on one and not another:
+
+```
+   Account                                           QOS
+---------- ---------------------------------------------
+   gpu_rbi                              high,long,normal     <- no gpu_long: -A gpu_rbi will fail
+   gpu_scb           gpu_long,interactive,long,normal        <- has it: -A gpu_scb works
+```
+
+Also confirm you're using the right account in the first place — your *default* account is often not your GPU account, so `-A` is usually required. See [Requesting access](#requesting-access).
+
+#### Confirm without burning a submission
+
+`--test-only` validates your request against every limit and prints the verdict **without queueing anything**:
+
+```bash
+sbatch --test-only -p gpu -A <your_gpu_account> --qos=gpu_long \
+       --gres=gpu:1 --time=3-00:00:00 --wrap='true'
+```
+
+| What you see | What it means |
+|---|---|
+| `sbatch: Job 157037 to start at 2026-07-16T07:32:13 ...` | You have `gpu_long` — a real submission would be accepted |
+| `allocation failure: Invalid qos specification` | Either `gpu_long` isn't granted on that account, or you typed `--qos=long` (which never works here) |
+| `allocation failure: Invalid account or account/partition combination` | Wrong `-A` — that account has no GPU access at all |
+| `sbatch: error: QOSMaxWallDurationPerJobLimit` | The QoS is fine, but your `--time` exceeds what it allows |
+
+#### Getting it enabled
+
+Ask an admin, and include **your username and the GPU account you submit with** — the grant is specific to that pair. Point them at [the admin guide](admin.md#gpu-partition), which has the exact `sacctmgr` command and a note on why an account-level grant alone often misses people.
 
 ### Requesting more than one GPU
 
