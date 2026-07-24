@@ -1,6 +1,10 @@
 # Interactive Sessions with `sinteractive`
 
-The `sinteractive` script launches a persistent interactive session on a compute node using tmux. It's located at [`scripts/sinteractive`](https://github.com/rnabioco/bodhi-docs/blob/main/scripts/sinteractive) in this repository.
+The `sinteractive` script launches a persistent interactive session on a
+compute node using tmux. It is developed in its own repository —
+[rnabioco/sinteractive](https://github.com/rnabioco/sinteractive) — which
+holds the script, man page, full documentation, and admin build targets. This
+page covers using it on Bodhi.
 
 ## Why use `sinteractive` instead of `srun --pty bash`?
 
@@ -16,16 +20,14 @@ The `sinteractive` script launches a persistent interactive session on a compute
 
 ## Installation
 
-```bash
-make install
-```
-
-This copies the script to `~/.local/bin/`. Make sure `~/.local/bin` is in your `$PATH` (add `export PATH="$HOME/.local/bin:$PATH"` to your `~/.bashrc` if needed).
-
-To install to a different location:
+`sinteractive` is installed cluster-wide on Bodhi at
+`/usr/local/bin/sinteractive`, so it should already be on your `PATH`. To
+install your own copy (or to use it on another cluster):
 
 ```bash
-make install PREFIX=~/bin
+git clone https://github.com/rnabioco/sinteractive
+cd sinteractive
+make install    # copies to ~/.local/bin and installs the man page
 ```
 
 ## Usage
@@ -34,7 +36,8 @@ make install PREFIX=~/bin
 sinteractive [OPTIONS] [SBATCH_ARGS...]
 ```
 
-### Options
+Common options (see `sinteractive --help` or `man sinteractive` for the full
+list, including `--detach`, `--status`, and `--json` for scripting):
 
 | Option | Description | Default |
 |---|---|---|
@@ -45,70 +48,14 @@ sinteractive [OPTIONS] [SBATCH_ARGS...]
 | `-m`, `--mem SIZE` | Memory | `8G` |
 | `-n`, `--name NAME` | Tag the session with a name for easy reattach (`--attach NAME`) | |
 | `--mouse` | Enable tmux mouse support (scroll, click panes, drag to resize) | off |
-| `--no-mouse` | Disable mouse support (overrides `SINTERACTIVE_MOUSE`) | |
-| `--detach` | Launch without attaching; print connection info and return | |
-| `--status [TARGET]` | Show session status by JOBID or NAME (state, node, time remaining) | current session |
-| `--json` | With `--list`/`--status`/`--detach`: machine-readable JSON output | |
 | `-a`, `--attach JOBID` | Reattach to a running session | |
 | `-l`, `--list` | List running sinteractive sessions | |
-| `-h`, `--help` | Show help message | |
 
-All other arguments are passed directly to `sbatch`, so you can use any `sbatch` option.
-
-### Environment variables
-
-Set personal defaults in your `~/.bashrc`; explicit flags always win.
-
-| Variable | Description | Default |
-|---|---|---|
-| `SINTERACTIVE_TIME` | Default wall time (e.g. `8h`, `2d`) | `1 day` |
-| `SINTERACTIVE_PARTITION` | Default partition | `interactive` |
-| `SINTERACTIVE_QOS` | Default QOS (`--qos`); needed on schedulers that require one | unset |
-| `SINTERACTIVE_CPUS` | Default CPU count | `2` |
-| `SINTERACTIVE_MEM` | Default memory (e.g. `16G`) | `8G` |
-| `SINTERACTIVE_MOUSE` | `on`/`1`/`true`/`yes` enables mouse support | off |
-| `SINTERACTIVE_TMUX` | Path to the `tmux` binary on the compute node | `/usr/local/bin/tmux` |
-
-```bash
-# Example: always use mouse mode and a bigger default allocation
-export SINTERACTIVE_MOUSE=on
-export SINTERACTIVE_MEM=16G
-export SINTERACTIVE_CPUS=4
-```
-
-### Configuring for CU Alpine
-
-`sinteractive` is written for Bodhi but is cluster-agnostic — the scheduler
-details are all driven by `SINTERACTIVE_*` variables. To run it on
-[CU Boulder's Alpine](https://curc.readthedocs.io/en/latest/clusters/alpine/index.html),
-three things differ from the Bodhi defaults:
-
-- **tmux path** — Alpine ships tmux as a system package at `/usr/bin/tmux`,
-  not the source-built `/usr/local/bin/tmux` Bodhi uses.
-- **CPU partition + QOS** — the general-purpose CPU queue is `acpu` (an
-  explicit `--qos` is mandatory). `acpu`/`cpu-normal` are the names that take
-  effect after Alpine's **2026-08-05** rename of `amilan`/`normal`; both name
-  sets are already accepted, so using the new ones now means no change at the
-  cutover.
-- **name clash on `PATH`** — Alpine already provides an older, `screen`-based
-  `sinteractive` in `/usr/local/bin`, which is ahead of `~/.local/bin` on
-  `PATH`. An `alias` forces your copy to win.
-
-After `make install`, add this to your `~/.bashrc`:
-
-```bash
-# Use the ~/.local/bin copy instead of Alpine's older /usr/local/bin one
-alias sinteractive="$HOME/.local/bin/sinteractive"
-
-export SINTERACTIVE_TMUX=/usr/bin/tmux     # Alpine's system tmux
-export SINTERACTIVE_PARTITION=acpu         # CPU queue (was 'amilan' pre-2026-08-05)
-export SINTERACTIVE_QOS=cpu-normal         # 1-day max walltime; QOS is required on Alpine
-```
-
-Then `sinteractive` launches a 1-day CPU session. For a longer run (up to
-7 days), override the QOS: `sinteractive --time=2d --qos=cpu-long`. The default
-account (`amc-general` for most users) is applied automatically; pass
-`--account=<name>` if you need a different allocation.
+All other arguments are passed directly to `sbatch`, so you can use any
+`sbatch` option. Personal defaults can be set with `SINTERACTIVE_*`
+environment variables in your `~/.bashrc` — see the
+[repo README](https://github.com/rnabioco/sinteractive#environment-variables),
+which also covers configuring it for other clusters such as CU Alpine.
 
 ### Examples
 
@@ -132,26 +79,6 @@ sinteractive --partition=gpu --gpus=1 --mem=16G
 sinteractive --time=1-12:00:00 --partition=normal
 ```
 
-## How it works
-
-1. **Submits a batch job** — `sbatch` launches the script itself on a compute node, where it starts a tmux session.
-2. **Waits for the job to start** — polls `squeue` every 5 seconds until the job is running (you'll see dots printed while waiting).
-3. **Connects via SSH** — once running, it SSHs into the compute node with X11 forwarding (`-X`) and attaches to the tmux session.
-4. **Stays alive until you exit** — the SLURM job remains running as long as the tmux session exists. Detaching (`Ctrl-b d`) or losing your SSH connection leaves the job running so you can reconnect. Exiting tmux (`exit`) ends the job.
-
-```mermaid
-sequenceDiagram
-    participant L as Login Node
-    participant S as SLURM
-    participant C as Compute Node
-
-    L->>S: sbatch (submit job)
-    S->>C: start tmux session
-    L-->>L: poll squeue until RUNNING
-    L->>C: ssh -X (attach to tmux)
-    Note over C: you work here
-```
-
 ## Reconnecting after a disconnect
 
 If your SSH connection drops or you intentionally detach (`Ctrl-b d`), the tmux session **keeps running** on the compute node and your work is safe. To reconnect from the login node:
@@ -171,36 +98,14 @@ Sessions launched with `-n NAME` can be reattached by name (`sinteractive --atta
 !!! info "This is the key advantage over `srun --pty bash`"
     With `srun`, a dropped SSH connection kills your session and any running processes. With `sinteractive`, you just reconnect and pick up where you left off.
 
-!!! note "X11 after reattaching"
-    X11 forwarding is set up on the **initial** connection (`ssh -X`). Reattaching with `--attach` reconnects through Slurm (`srun`) rather than a new `ssh -X`, so GUI apps launched **after** a reattach won't have a working `DISPLAY`. If you need X11, keep the original connection, or start a fresh session for GUI work.
-
 ## Scripting and agent use
 
-`sinteractive` has a headless mode designed for scripts and coding agents such as [Claude Code](https://code.claude.com/docs/):
-
-```bash
-# Launch without attaching; returns once the session is ready
-sinteractive --detach -n mywork --time=8h
-
-# Machine-readable session info
-sinteractive --list --json
-sinteractive --status mywork --json
-# {"job_id":147845,"name":"mywork","state":"RUNNING","node":"compute20",
-#  "partition":"rna","time_limit":"8:00:00","elapsed":"0:43",
-#  "end_epoch":1783180952,"remaining_seconds":28757}
-
-# Run a command inside the allocation (exit code propagates)
-srun --overlap --jobid=JOBID -- bash -lc 'make test'
-```
-
-Inside a session, `SINTERACTIVE_JOB_ID` (and `SINTERACTIVE_NAME`, if named) are exported, and `sinteractive --status` with no argument reports on the current session. A state file at `~/.cache/sinteractive/JOBID.json` is refreshed about every 30 seconds with `remaining_seconds`, so tools can poll the time budget without querying the scheduler; it is removed when the session ends. In-session renames (`Ctrl-b $`) are reflected in the state file, `--status`, and new panes, but shells already running keep their original `SINTERACTIVE_NAME`.
-
-!!! tip "Claude Code skill"
-    The repo ships a [skill](https://code.claude.com/docs/en/skills) that teaches Claude Code cluster etiquette: run heavy work in an allocation (never on the login node), reuse sessions, check the time budget before long jobs, and clean up. Install it per-user from a checkout of this repo:
-
-    ```bash
-    make skill-install   # copies to ~/.claude/skills/bodhi-compute
-    ```
+`sinteractive` has a headless mode (`--detach`, `--status`, `--json`) designed
+for scripts and coding agents, plus a
+[Claude Code skill](https://github.com/rnabioco/sinteractive#scripting-and-agent-use)
+that teaches agents cluster etiquette (run heavy work in an allocation, reuse
+sessions, check the time budget). See the repo README for details; install the
+skill from a checkout with `make skill-install`.
 
 ## Tips
 

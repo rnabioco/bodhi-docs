@@ -16,57 +16,27 @@ pixi run docs
 pixi run build
 ```
 
-## Installing the scripts
+## sinteractive
 
-The `sinteractive` and `bodhi-splash` helpers install via `make`:
+The `sinteractive` helper (persistent tmux-backed interactive sessions on
+compute nodes) lives in its own repository, along with its man page, build
+targets, and Claude Code skill: <https://github.com/rnabioco/sinteractive>.
+The user-facing guide stays on this site at
+[Interactive Sessions](https://rnabioco.github.io/bodhi-docs/sinteractive/).
+
+## Installing the splash
+
+The `bodhi-splash` login banner installs via `make`:
 
 ```bash
 # Per-user install (default): copies into ~/.local/bin
 make install
 
-# System-wide install (as root): sinteractive to /usr/local/bin and the
-# login splash to /etc/profile.d/bodhi-splash.sh
+# System-wide install (as root): to /etc/profile.d/bodhi-splash.sh
 sudo make install
 ```
 
 Override the per-user location with `PREFIX`, e.g. `make install PREFIX=~/bin`.
-
-There is also a [Claude Code skill](skills/bodhi-compute/SKILL.md) that teaches
-agents to run compute work through `sinteractive` (headless launch, `srun
---overlap`, time budgets) instead of on the login node:
-
-```bash
-# Per-user: copies to ~/.claude/skills/bodhi-compute
-make skill-install
-```
-
-## Upgrading tmux
-
-`sinteractive` runs `tmux` **on the allocated compute node**, and `/usr/local`
-is node-local, so the latest tmux must be installed on every node. These targets
-build the latest [tmux release](https://github.com/tmux/tmux/wiki) from source
-and fan it out to the cluster. They **must be run as root** on the head node:
-
-```bash
-# One-time: install build dependencies (RHEL/Rocky 9)
-sudo make tmux-deps
-
-# Download, build, and install into /usr/local
-sudo make tmux
-
-# Copy the built binary to every Slurm compute node
-sudo make tmux-push
-
-# Or do the build + push in one step
-sudo make tmux-all
-```
-
-- Bump the version with `TMUX_VERSION`, e.g. `sudo make tmux TMUX_VERSION=3.8`.
-- Restrict the push to specific nodes with `NODES`, e.g.
-  `sudo make tmux-push NODES="compute00 compute01"` (defaults to all Slurm
-  nodes from `sinfo`).
-- `tmux-push` copies to a temp name and renames into place, so running
-  `sinteractive` sessions aren't disturbed.
 
 ## Converter script
 
