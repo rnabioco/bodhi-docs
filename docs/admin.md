@@ -103,20 +103,20 @@ Add the following line to `/etc/slurm/slurm.conf`:
 Live configuration (`scontrol show partition interactive`):
 
 ```conf
-PartitionName=interactive Nodes=compute[04,06-07] Default=NO MaxTime=2-00:00:00 DefaultTime=08:00:00 State=UP AllowQos=ALL
+PartitionName=interactive Nodes=compute[04,06-07] Default=NO MaxTime=5-00:00:00 DefaultTime=08:00:00 State=UP AllowQos=ALL
 ```
 
 | Parameter | Value | Purpose |
 |---|---|---|
 | `Nodes` | `compute[04,06-07]` | Shared with `normal` partition |
 | `Default` | `NO` | Users must request this partition explicitly |
-| `MaxTime` | `2-00:00:00` | 2-day maximum wall time |
+| `MaxTime` | `5-00:00:00` | 5-day maximum wall time |
 | `DefaultTime` | `08:00:00` | 8-hour default |
 | `AllowQos` | `ALL` | Any QoS may submit here |
 | `QOS` | *(none)* | No partition QoS is assigned |
 
 !!! warning "This partition does not force the `interactive` QoS"
-    Despite the name, `interactive` has **no** partition QoS and `AllowQos=ALL`, so jobs land on the default `normal` QoS (3-day `MaxWall`) unless the user passes `--qos=interactive`. The partition's own `MaxTime=2-00:00:00` is what actually bounds sessions here, and the `interactive` QoS's 12-hour `MaxWall` and 16-CPU/8 GB caps apply only when explicitly requested.
+    Despite the name, `interactive` has **no** partition QoS and `AllowQos=ALL`, so jobs land on the default `normal` QoS (3-day `MaxWall`) unless the user passes `--qos=interactive`. The partition's own `MaxTime=5-00:00:00` is what actually bounds sessions here, and the `interactive` QoS's 12-hour `MaxWall` and 16-CPU/8 GB caps apply only when explicitly requested.
 
     This is why `sinteractive`'s 1-day default works even though the `interactive` QoS caps at 12 hours. If you want those caps enforced for everyone, set `QOS=interactive` on the partition and restrict `AllowQos` — but check first that it won't break `sinteractive`'s defaults.
 
