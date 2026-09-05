@@ -18,7 +18,7 @@ Bodhi has migrated from IBM Spectrum LSF to **SLURM**. Our SLURM documentation c
 - [**Common Pain Points**](pain-points.md) — OOM debugging, accounts, wall time
 - [**Example Scripts**](example-scripts.md) — complete before/after job scripts
 - [**Converter**](conversion-script.md) — automated `lsf2slurm.sh` helper script
-- [**Interactive Sessions**](sinteractive.md) — persistent interactive jobs with tmux
+- [**Interactive Sessions**](sinteractive.md) — `sinteractive`: persistent shells on a compute node that survive an SSH disconnect
 - [**Resources**](resources.md) — links to official SLURM documentation
 
 ## Positron / VSCode

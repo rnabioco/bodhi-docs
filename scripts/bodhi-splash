@@ -211,8 +211,8 @@ __bodhi_splash_main() {
     }
 
     # Soonest upcoming MAINT reservation, if Slurm has one. This is the source
-    # of truth for the maintenance date and matches how sinteractive's
-    # check_maintenance_window() selects the window. Echoes the epoch and
+    # of truth for the maintenance date and matches how sinteractive trims
+    # a session to end before the window. Echoes the epoch and
     # returns 0 on success; returns 1 (fail open to the computed default) when
     # scontrol is unavailable/slow, there's no future MAINT reservation, or a
     # debug date is being simulated.
@@ -405,8 +405,10 @@ __bodhi_splash_main() {
     _bs_interactive_sessions() {
         _bs_row "${_bold}Interactive Sessions${_rst}"
         _bs_row "  ${_cyan}sinteractive${_rst}              Launch a persistent session"
-        _bs_row "  ${_cyan}sinteractive --attach JID${_rst} Reconnect to a session"
-        _bs_row "  ${_cyan}sinteractive --list${_rst}       List running sessions"
+        _bs_row "  ${_cyan}sinteractive attach${_rst}       Reconnect (JOBID or NAME)"
+        _bs_row "  ${_cyan}sinteractive list${_rst}         List running sessions"
+        _bs_row "  ${_cyan}sinteractive queue${_rst}        Your jobs: running, pending, recent"
+        _bs_row "  ${_dim}Keys inside a session: ${_rst}${_cyan}Ctrl+b h${_rst}${_dim} for the legend${_rst}"
     }
 
     _bs_positron_vscode() {

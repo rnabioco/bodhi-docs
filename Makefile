@@ -2,12 +2,16 @@ PREFIX ?= ~/.local/bin
 # man finds ~/.local/share/man automatically when ~/.local/bin is on PATH.
 MANDIR ?= ~/.local/share/man/man1
 
-# When run as root, install system-wide: sinteractive to /usr/local/bin,
-# its man page to /usr/local/share/man, and the splash to /etc/profile.d
-# so it runs for every interactive login.
+# When run as root, install system-wide: the scripts to /usr/local/bin, their
+# man pages to /usr/local/share/man, and the splash to /etc/profile.d so it
+# runs for every interactive login.
+#
+# sinteractive is NOT installed from here. It lives in rnabioco/sinteractive
+# and is installed from that checkout (`make install`, or `sudo make nodes`
+# to fan the binary out to the compute nodes).
 UID := $(shell id -u)
 
-.PHONY: install install-user install-system skill-install
+.PHONY: install install-user install-system
 
 ifeq ($(UID),0)
 install: install-system
@@ -17,32 +21,21 @@ endif
 
 install-user:
 	mkdir -p $(PREFIX)
-	cp scripts/sinteractive $(PREFIX)/sinteractive
-	chmod +x $(PREFIX)/sinteractive
 	cp scripts/bodhi-splash $(PREFIX)/bodhi-splash
 	chmod +x $(PREFIX)/bodhi-splash
-	mkdir -p $(MANDIR)
-	cp man/sinteractive.1 $(MANDIR)/sinteractive.1
+
 
 install-system:
-	install -m 0755 scripts/sinteractive /usr/local/bin/sinteractive
 	install -m 0644 scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
-	install -D -m 0644 man/sinteractive.1 /usr/local/share/man/man1/sinteractive.1
-
-# Claude Code skill: teaches agents to run heavy work in a Slurm allocation
-# (sinteractive --detach/--status, srun --overlap, time budgets). Skills are
-# per-user, so this installs into ~/.claude/skills regardless of UID.
-skill-install:
-	mkdir -p $(HOME)/.claude/skills/bodhi-compute
-	cp skills/bodhi-compute/SKILL.md $(HOME)/.claude/skills/bodhi-compute/SKILL.md
 
 # ---------------------------------------------------------------------------
 # tmux — build the latest release from source and install to $(TMUX_PREFIX).
 #
-# sinteractive runs $(TMUX_PREFIX)/bin/tmux ON THE ALLOCATED COMPUTE NODE, and
-# /usr/local is node-local (root fs, not shared), so the binary must exist on
-# every compute node. Build once with `make tmux`, then fan it out with
-# `make tmux-push`.
+# NOTE: sinteractive no longer needs this. Since 1.0 it has zellij compiled
+# into the binary and runs nothing else on the node. These targets remain for
+# users who run tmux themselves; /usr/local is node-local (root fs, not
+# shared), so a build has to be fanned out with `make tmux-push` to be
+# available cluster-wide.
 #
 # Bump the version here (or `make tmux TMUX_VERSION=3.8`) — see the release
 # list at https://github.com/tmux/tmux/wiki
@@ -82,7 +75,7 @@ tmux: require-root
 	@$(TMUX_PREFIX)/bin/tmux -V
 
 # Fan the freshly built binary out to the compute nodes. Copies to a temp name
-# and renames into place so running sinteractive sessions aren't disturbed
+# and renames into place so running tmux servers aren't disturbed
 # ("text file busy" / clobbering a live server's inode).
 tmux-push: require-root
 	@test -x $(TMUX_PREFIX)/bin/tmux || { echo "build first: make tmux"; exit 1; }
