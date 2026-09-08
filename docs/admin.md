@@ -37,6 +37,110 @@ scontrol create reservation \
 scontrol delete reservation monthly-maint
 ```
 
+### Restrict SSH during the window
+
+A `MAINT` reservation stops **jobs**. It does nothing about **logins**. Users can still SSH to `amc-bodhi` during the window and — because `pam_slurm_adopt` is not configured in `/etc/pam.d/sshd` — straight to any compute node as well, whether or not they have a job on it. Apply the lockout fleet-wide, not just on the head node.
+
+The mechanism is a single drop-in file that allows only a named group. Rocky 9's `/etc/ssh/sshd_config` already has `Include /etc/ssh/sshd_config.d/*.conf` at the top, so a drop-in wins over the base config and the whole lockout is one file to add and remove.
+
+#### One-time setup
+
+Create the allow-list group and add the admins. Group lookups resolve through NIS first (`group: nis files ...` in `/etc/nsswitch.conf`), so a NIS group works fleet-wide; a local group has to exist on every node:
+
+```bash
+getent group sshmaint          # currently returns nothing — it does not exist yet
+
+# node-local fallback if the group is not in NIS
+pdsh -w $NODES 'groupadd -r sshmaint'
+pdsh -w $NODES 'usermod -aG sshmaint <admin-user>'
+pdsh -w $NODES 'getent group sshmaint' | sort    # confirm identical membership everywhere
+```
+
+Check for allow/deny rules that are already in play, so the drop-in doesn't interact with something unexpected:
+
+```bash
+grep -riE 'allow(users|groups)|deny(users|groups)' /etc/ssh/sshd_config /etc/ssh/sshd_config.d/
+```
+
+#### Enable the lockout
+
+Build the file once locally, push it with `pdcp`, then validate and reload as a separate step. Writing the config and testing it in one nested-quoting `pdsh` one-liner is how you end up with a typo'd `AllowGroups` on 25 nodes:
+
+```bash
+printf '%s\n' \
+  '# Maintenance lockout — remove this file and reload sshd to restore access.' \
+  'AllowGroups sshmaint root' > /tmp/99-maintenance.conf
+
+pdcp -w $NODES /tmp/99-maintenance.conf /etc/ssh/sshd_config.d/
+```
+
+Now validate and reload, reverting automatically on any node where the config doesn't parse:
+
+```bash
+pdsh -w $NODES 'sshd -t && systemctl reload sshd \
+  || { rm -f /etc/ssh/sshd_config.d/99-maintenance.conf; echo "REVERTED"; }'
+```
+
+The self-revert matters: `sshd -t` alone would leave a bad drop-in sitting on disk for the next reboot to pick up — during a window where you are rebooting anyway.
+
+!!! warning "Keep a session open"
+    Always keep your current SSH session open and test the lockout from a *second* terminal before logging out. A mistake in `AllowGroups` locks everyone out, including you, and recovery then needs console access (`minicom -D /dev/ttyUSB0`).
+
+Verify the effective config rather than the file — `sshd -T` shows what sshd actually resolved:
+
+```bash
+pdsh -w $NODES 'sshd -T | grep -i "^allowgroups"' | sort
+```
+
+Then confirm from a third terminal that a non-whitelisted account is refused and an `sshmaint` member still gets in.
+
+#### Evicting sessions already open
+
+The lockout only blocks *new* logins. Anyone already connected stays connected:
+
+```bash
+who                            # or: loginctl list-sessions
+loginctl kill-user <username>  # ends all of that user's sessions on this node
+```
+
+This also kills any multiplexer the user has parked — `tmux`, `screen`, and the `zellij` server behind an `sinteractive` session — so give warning through the [login splash](login-splash.md#maintenance-banner) rather than making this the first thing users notice.
+
+#### Failsafe: schedule the unlock
+
+A lockout that someone forgets to remove strands the whole user base, so schedule the removal at the same time you create it. The drop-in is on every node, so the unlock has to be queued on every node too:
+
+```bash
+pdsh -w $NODES 'systemctl enable --now atd'
+pdsh -w $NODES "echo 'rm -f /etc/ssh/sshd_config.d/99-maintenance.conf \
+  && systemctl reload sshd' | at 06:00 tomorrow"
+pdsh -w $NODES 'atq' | sort    # confirm one job queued per node
+```
+
+Use `at`, not `systemd-run --on-active`: transient systemd timers do not survive a reboot, and maintenance windows involve reboots. `at` jobs are re-read from the spool by `atd` after a restart.
+
+#### Lift the lockout
+
+```bash
+pdsh -w $NODES 'rm -f /etc/ssh/sshd_config.d/99-maintenance.conf && sshd -t && systemctl reload sshd'
+pdsh -w $NODES 'sshd -T | grep -ci "^allowgroups"' | sort   # expect 0 everywhere
+```
+
+If you lift it early, drop the queued failsafe too, or it fires later and triggers a pointless `sshd` reload on every node:
+
+```bash
+pdsh -w $NODES 'atq' | sort                 # note the job IDs
+pdsh -w $NODES 'atrm $(atq | cut -f1)'
+```
+
+#### Why not `/etc/nologin`
+
+`pam_nologin.so` is already active in `/etc/pam.d/sshd`, and dropping a message into `/etc/nologin` is the traditional way to do this. It is the wrong tool here for two reasons:
+
+- **No allow-list.** `pam_nologin` permits `root` and blocks *everyone* else. Admins who log in as themselves and then `sudo` are locked out along with the users.
+- **Reboot behaviour is not what people assume.** `pam_nologin` honours both `/run/nologin` and `/etc/nologin`, and `systemd-user-sessions.service` manages `/run/nologin` across boot and shutdown. Don't rely on a `nologin` file surviving the reboots in a maintenance window without testing it on this build first.
+
+Don't combine the two either — `/etc/nologin` would block the `sshmaint` admins the drop-in is meant to let through, unless every admin logs in as `root`.
+
 ### Alternative: drain nodes
 
 A more manual approach that doesn't give users advance visibility:
@@ -103,7 +207,7 @@ Add the following line to `/etc/slurm/slurm.conf`:
 Live configuration (`scontrol show partition interactive`):
 
 ```conf
-PartitionName=interactive Nodes=compute[04,06-07] Default=NO MaxTime=5-00:00:00 DefaultTime=08:00:00 State=UP AllowQos=ALL
+PartitionName=interactive Nodes=compute[04,06-07] Default=NO MaxTime=2-00:00:00 DefaultTime=08:00:00 State=UP AllowQos=ALL
 ```
 
 | Parameter | Value | Purpose |
@@ -116,7 +220,7 @@ PartitionName=interactive Nodes=compute[04,06-07] Default=NO MaxTime=5-00:00:00 
 | `QOS` | *(none)* | No partition QoS is assigned |
 
 !!! warning "This partition does not force the `interactive` QoS"
-    Despite the name, `interactive` has **no** partition QoS and `AllowQos=ALL`, so jobs land on the default `normal` QoS (3-day `MaxWall`) unless the user passes `--qos=interactive`. The partition's own `MaxTime=5-00:00:00` is what actually bounds sessions here, and the `interactive` QoS's 12-hour `MaxWall` and 16-CPU/8 GB caps apply only when explicitly requested.
+    Despite the name, `interactive` has **no** partition QoS and `AllowQos=ALL`, so jobs land on the default `normal` QoS (3-day `MaxWall`) unless the user passes `--qos=interactive`. The partition's own `MaxTime=2-00:00:00` is what actually bounds sessions here, and the `interactive` QoS's 12-hour `MaxWall` and 16-CPU/8 GB caps apply only when explicitly requested.
 
     This is why `sinteractive`'s 1-day default works even though the `interactive` QoS caps at 12 hours. If you want those caps enforced for everyone, set `QOS=interactive` on the partition and restrict `AllowQos` — but check first that it won't break `sinteractive`'s defaults.
 
