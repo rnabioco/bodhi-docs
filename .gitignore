@@ -25,3 +25,4 @@ slurm-*.err
 
 # Local shell secrets (never commit)
 .bashrc.local
+.claude/worktrees/
