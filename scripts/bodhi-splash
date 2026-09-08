@@ -418,7 +418,8 @@ __bodhi_splash_main() {
 
     _bs_quota() {
         _bs_row "${_bold}Storage Quota${_rst}"
-        _bs_row "  Check your usage: ${_cyan}quota_check -u \$USER -b${_rst}"
+        _bs_row "  Check your usage: ${_cyan}quota_check${_rst}"
+        _bs_row "  Per-server detail: ${_cyan}quota_check --full${_rst}"
     }
 
     _bs_contact_info() {

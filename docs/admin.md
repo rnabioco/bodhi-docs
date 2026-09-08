@@ -357,3 +357,65 @@ sbatch -p gpu -A gpu_devbio --gres=gpu:1 job.sh
 sacctmgr show assoc account=gpu_devbio format=Account,User,Partition,GrpTRES
 sacctmgr show user gibsonty withassoc format=User,Account,DefaultAccount,Partition
 ```
+
+---
+
+## Storage quotas
+
+Usage lives on the nine storage servers behind `/beevol` (`172.20.8.110`–`118`), each running a quota daemon that answers `QUOTA <uid>` on TCP 9878 with that server's share in kilobytes. The **limits** are separate: they come from `/etc/quota_current.txt`, which is regenerated on the head node.
+
+[`quota_check`](https://github.com/rnabioco/bodhi-docs/blob/main/scripts/quota_check) queries all nine in parallel and adds them up. It is a shell script with no dependencies beyond bash and coreutils, so it installs and runs on compute nodes as well as the head node.
+
+### Quota file format
+
+One user per line, pipe-delimited, with the notification address optional. Whitespace around fields is padding, not data:
+
+```text
+jdoe|   21.48TiB|   jdoe@example.com
+```
+
+Blank lines, `#` comments, and lines without at least a username and a size are ignored. Sizes accept the `xfs_quota` suffixes (`K`/`M`/`G`/`T`/`P`) and their IEC spellings (`KiB`…`PiB`), in either case.
+
+### Installing on the compute nodes
+
+`/usr/local` is node-local, so the script has to be placed on each node:
+
+```bash
+sudo make quota-nodes        # fan out to every node sinfo knows about
+make quota-nodes-check       # report what each node actually has
+```
+
+`quota-nodes-check` is read-only and unprivileged — run it any time. A fan-out that failed halfway is otherwise invisible.
+
+### Publishing the quota file
+
+A compute node can reach the daemons but not `/etc/quota_current.txt`, so `Hard Quota` and `% Used` read `-` there. Publishing the file to `/cluster/share` — an NFS mount every node has, and the second location `quota_check` searches — closes the gap:
+
+```bash
+sudo make publish-quota-file
+```
+
+!!! warning "Publish from the job that regenerates the file"
+    The copy is a snapshot. If `/etc/quota_current.txt` is regenerated without republishing, compute nodes keep reporting against the stale limits — and nothing in the output says so. Add `make publish-quota-file` to the same cron job.
+
+### Over-quota notifications
+
+```bash
+quota_check --all --email --dry-run   # who would be mailed
+quota_check --all --email             # send
+```
+
+`--email` requires `--all`, mails everyone over 100% using the address in the third field of the quota file, and copies the storage administrator (`--no-smtp-cc` suppresses that). Users over quota with no address are reported on stderr and skipped.
+
+Mail is spoken directly to the smarthost over TCP rather than handed to `sendmail`, because compute nodes have no MTA. Override the relay with `--smtp-server HOST[:PORT]` or `QUOTA_CHECK_SMTP_SERVER`.
+
+**Always run `--dry-run` first.** It exercises the full selection path — query, quota lookup, threshold — and prints the recipient list without opening a connection to the mail server.
+
+### Checking one user
+
+```bash
+quota_check -u jdoe --full     # per-server breakdown
+quota_check -u jdoe --json     # for scripts
+```
+
+See `man quota_check` for the rest.

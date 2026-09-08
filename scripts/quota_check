@@ -1,0 +1,942 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+#
+# quota_check — report /beevol storage usage against your hard quota.
+#
+# Usage is spread across nine storage servers, each running a small quota
+# daemon: send "QUOTA <uid>" on TCP 9878 and it answers "OK <kilobytes>"
+# for that server's share. This asks all of them in parallel and adds the
+# answers up. The hard quota is not something the daemons know; it comes
+# from a pipe-delimited file the admins maintain.
+#
+# A shell rewrite of the Python quota_client.py, with two deliberate
+# changes:
+#
+#   - the one-line summary is now the default and the per-host breakdown
+#     is opt-in (--full). The original had that backwards: it printed the
+#     whole breakdown unless you remembered -b.
+#   - nothing outside bash and coreutils is required, so it installs and
+#     runs on a compute node as-is. TCP goes through bash's /dev/tcp, and
+#     so does SMTP for --email, because compute nodes have no MTA.
+#
+# Maintained by Jay Hesselberth.
+
+# Treat unset variables as errors; every optional value below is guarded
+# explicitly, so this only fires on genuine bugs.
+set -u
+
+# Reported by --version; keep in sync with the release tag (vX.Y.Z).
+VERSION='1.0.0'
+# Basename for error messages ($0 is the full install path — noisy).
+PROG="${0##*/}"
+# Path to re-exec for the __smtp helper. A bare $0 means we were found on
+# PATH and the child would have to be too, so resolve it while we can.
+SCRIPT_PATH="$0"
+[[ $SCRIPT_PATH == */* ]] || SCRIPT_PATH=$(command -v -- "$0" 2>/dev/null) ||
+  SCRIPT_PATH="$0"
+
+# Associative arrays and ${arr[@]} over an empty array both need bash 4.
+if ((BASH_VERSINFO[0] < 4)); then
+  echo 1>&2 "Error: ${PROG} needs bash 4 or newer (found ${BASH_VERSION})."
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Defaults. Each is overridable by environment (QUOTA_CHECK_*) and then by
+# a command-line flag, so a site can point the script somewhere else without
+# editing it — which matters when the same file is installed on every node.
+# ---------------------------------------------------------------------------
+DEFAULT_HOSTS=(
+  172.20.8.110 172.20.8.111 172.20.8.112
+  172.20.8.113 172.20.8.114 172.20.8.115
+  172.20.8.116 172.20.8.117 172.20.8.118
+)
+PORT="${QUOTA_CHECK_PORT:-9878}"
+TIMEOUT="${QUOTA_CHECK_TIMEOUT:-10}"
+SMTP_SERVER="${QUOTA_CHECK_SMTP_SERVER:-mail.ucdenver.pvt}"
+SMTP_FROM="${QUOTA_CHECK_SMTP_FROM:-noreply@cuanschutz.edu}"
+SMTP_CC="${QUOTA_CHECK_SMTP_CC:-David.Farrell@cuanschutz.edu}"
+ADMIN_CONTACT="${QUOTA_CHECK_ADMIN:-David.Farrell@cuanschutz.edu}"
+
+# Where to look for the hard quotas, in order. /etc/quota_current.txt is the
+# head node's copy; /cluster/share is an NFS mount present on every compute
+# node, which is what makes --full and % used work off the head node (see
+# `make publish-quota-file`). Without either, usage still reports and the
+# quota columns read "-".
+QUOTA_FILE_CANDIDATES=(
+  /etc/quota_current.txt
+  /cluster/share/quota_current.txt
+)
+
+# Populated by parse_hosts(); the effective host list for this run.
+HOSTS=("${DEFAULT_HOSTS[@]}")
+
+# Hard quotas and notification addresses read out of the quota file, keyed
+# by username, plus the usernames in file order.
+declare -A QUOTA_KB=()
+declare -A QUOTA_EMAIL=()
+QUOTA_USERS=()
+
+# Out-params for query_user(). Read them immediately after the call — the
+# next query overwrites them.
+QUERY_TOTAL_KB=0
+QUERY_OK=()  # "host|kilobytes", one per host that answered
+QUERY_ERR=() # "host|message", one per host that did not
+
+# Set by the SMTP helpers so a failed send can say what went wrong.
+SMTP_REPLY=''
+SMTP_ERROR=''
+
+function die {
+  echo 1>&2 "Error: $*"
+  exit 1
+}
+
+function warn {
+  echo 1>&2 "Warning: $*"
+}
+
+# ---------------------------------------------------------------------------
+# Formatting
+# ---------------------------------------------------------------------------
+
+# Convert kilobytes to the same human-readable string the Python client
+# printed: one decimal place, dropped when the value is whole ("3T", not
+# "3.0T"). Integer math throughout — a petabyte is 1.1e12 KB, so the ×10
+# and ×1000 scalings here stay far inside a signed 64-bit range.
+function format_size {
+  local kb=$1
+  local units=(K M G T P)
+  local i=0 div=1 tenths
+
+  ((kb == 0)) && {
+    printf '0'
+    return
+  }
+
+  while ((kb / div >= 1024 && i < 4)); do
+    div=$((div * 1024))
+    i=$((i + 1))
+  done
+
+  # Kilobytes are whole by definition, so the decimal only starts to mean
+  # something once we have divided at least once.
+  ((i == 0)) && {
+    printf '%dK' "$kb"
+    return
+  }
+
+  # The decimal is dropped only when the division comes out exact. A value
+  # that merely rounds to x.0 keeps it, so 1025K reads "1.0M" and not "1M" —
+  # a distinction the Python client made and users have learned to read.
+  if ((kb % div == 0)); then
+    printf '%d%s' $((kb / div)) "${units[i]}"
+    return
+  fi
+  tenths=$(((kb * 10 + div / 2) / div))
+  printf '%d.%d%s' $((tenths / 10)) $((tenths % 10)) "${units[i]}"
+}
+
+# Percentage of a total, to one decimal place. Echoes nothing and returns 1
+# when there is no total to divide by, so callers can print "-" rather than
+# a made-up number.
+function format_pct {
+  local part=$1 whole=$2 tenths
+  ((whole > 0)) || return 1
+  tenths=$(((part * 1000 + whole / 2) / whole))
+  printf '%d.%d' $((tenths / 10)) $((tenths % 10))
+}
+
+# Convert a size string from the quota file ("30.0TiB", "4T", "512M") to
+# kilobytes. Accepts the xfs_quota suffixes and their IEC spellings, in
+# either case. Unparseable input is 0, matching the Python client — a
+# malformed line should not invent a quota.
+function parse_size_to_kb {
+  local value=${1//[[:space:]]/}
+  local num unit int frac pow i mult=1 kb
+
+  [[ -n $value && $value != 0 ]] || {
+    printf '0'
+    return
+  }
+  [[ $value =~ ^([0-9]+(\.[0-9]+)?)([KMGTPkmgtp]([Ii]?[Bb])?)?$ ]] || {
+    printf '0'
+    return
+  }
+
+  num=${BASH_REMATCH[1]}
+  unit=${BASH_REMATCH[3]:0:1}
+
+  case "${unit^}" in
+  '' | K) mult=1 ;;
+  M) mult=1024 ;;
+  G) mult=$((1024 ** 2)) ;;
+  T) mult=$((1024 ** 3)) ;;
+  P) mult=$((1024 ** 4)) ;;
+  esac
+
+  int=${num%%.*}
+  frac=''
+  [[ $num == *.* ]] && frac=${num#*.}
+  # Six digits is far past any real quota's precision, and keeps the
+  # multiply below well inside 64-bit range.
+  frac=${frac:0:6}
+
+  kb=$((10#$int * mult))
+  if [[ -n $frac ]]; then
+    pow=1
+    for ((i = 0; i < ${#frac}; i++)); do pow=$((pow * 10)); done
+    kb=$((kb + (10#$frac * mult) / pow))
+  fi
+  printf '%d' "$kb"
+}
+
+# Escape a string for embedding in JSON, or emit null when it is empty.
+function json_string_or_null {
+  local s=$1
+  if [[ -z "$s" ]]; then
+    printf 'null'
+    return
+  fi
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  printf '"%s"' "$s"
+}
+
+# ---------------------------------------------------------------------------
+# Quota file
+# ---------------------------------------------------------------------------
+
+# First readable candidate wins. Returns 1 when there is no quota file to be
+# found, which is not fatal: usage still reports without one.
+function find_quota_file {
+  local candidate
+  for candidate in "${QUOTA_FILE_CANDIDATES[@]}"; do
+    if [[ -r $candidate ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Read hard quotas and optional notification addresses from a pipe-delimited
+# file, one user per line:
+#
+#   jdoe|21.48TiB|jdoe@example.com
+#
+# Whitespace around fields is padding, not data — the live file pads the
+# size and email columns. Blank lines and #-comments are skipped, as is any
+# line without at least a username and a size.
+function load_quota_file {
+  local path=$1
+  local line user size email
+
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%$'\r'}
+    [[ -n ${line//[[:space:]]/} ]] || continue
+    [[ ${line#"${line%%[![:space:]]*}"} == \#* ]] && continue
+    IFS='|' read -r user size email <<<"$line"
+    user=${user//[[:space:]]/}
+    size=${size//[[:space:]]/}
+    email=${email//[[:space:]]/}
+    [[ -n $user && -n $size ]] || continue
+    QUOTA_KB["$user"]=$(parse_size_to_kb "$size")
+    QUOTA_EMAIL["$user"]=$email
+    QUOTA_USERS+=("$user")
+  done <"$path"
+
+  ((${#QUOTA_USERS[@]})) || return 0
+  mapfile -t QUOTA_USERS < <(printf '%s\n' "${QUOTA_USERS[@]}" | LC_ALL=C sort -u)
+}
+
+# ---------------------------------------------------------------------------
+# Querying the daemons
+# ---------------------------------------------------------------------------
+
+# Ask one storage server what a uid is using. Echoes "ok|<kilobytes>" or
+# "err|<message>" — never fails, because one unreachable server should cost
+# a line of output rather than the whole report.
+function probe_host {
+  local host=$1 uid=$2
+  local resp status kb msg
+
+  # bash's /dev/tcp does the connect, and a redirection has no timeout of
+  # its own, so an unreachable server would hang until the kernel gave up:
+  # timeout(1) bounds it. stderr is folded into the capture because a
+  # refused connection has nothing to say on stdout.
+  # shellcheck disable=SC2016  # the args are passed positionally, not interpolated
+  resp=$(timeout "$TIMEOUT" "$BASH" -c '
+      exec 3<>"/dev/tcp/$1/$2" || exit 3
+      printf "QUOTA %s\n" "$3" >&3
+      IFS= read -r -t "$4" line <&3 || exit 4
+      printf "%s\n" "$line"
+    ' _ "$host" "$PORT" "$uid" "$TIMEOUT" 2>&1)
+  status=$?
+
+  case "$status" in
+  0)
+    resp=${resp%$'\r'}
+    if [[ $resp == OK\ * ]]; then
+      kb=${resp#OK }
+      kb=${kb//[[:space:]]/}
+      if [[ $kb =~ ^[0-9]+$ ]]; then
+        printf 'ok|%s\n' "$kb"
+      else
+        printf 'err|unexpected response: %s\n' "$resp"
+      fi
+    elif [[ $resp == ERROR\ * ]]; then
+      printf 'err|%s\n' "${resp#ERROR }"
+    else
+      printf 'err|unexpected response: %s\n' "$resp"
+    fi
+    ;;
+  124)
+    printf 'err|timed out after %ss\n' "$TIMEOUT"
+    ;;
+  4)
+    printf 'err|connection closed without a reply\n'
+    ;;
+  *)
+    # bash says "…/dev/tcp/host/port: Connection refused" over two lines;
+    # everything before the last ": " is our own plumbing.
+    msg=${resp##*: }
+    msg=${msg//$'\n'/; }
+    [[ -n $msg ]] || msg='connection failed'
+    printf 'err|%s\n' "$msg"
+    ;;
+  esac
+}
+
+# Query every host for one uid, in parallel, and fill QUERY_TOTAL_KB,
+# QUERY_OK and QUERY_ERR. Each probe writes to its own file rather than a
+# shared pipe, so nine concurrent writers cannot interleave a line.
+function query_user {
+  local uid=$1
+  local tmpdir host idx line status payload
+
+  QUERY_TOTAL_KB=0
+  QUERY_OK=()
+  QUERY_ERR=()
+
+  tmpdir=$(mktemp -d) || die "could not create a temporary directory."
+
+  idx=0
+  for host in "${HOSTS[@]}"; do
+    probe_host "$host" "$uid" >"${tmpdir}/${idx}" &
+    idx=$((idx + 1))
+  done
+  wait
+
+  idx=0
+  for host in "${HOSTS[@]}"; do
+    line=$(<"${tmpdir}/${idx}")
+    idx=$((idx + 1))
+    [[ -n $line ]] || line='err|no response'
+    status=${line%%|*}
+    payload=${line#*|}
+    if [[ $status == ok ]]; then
+      QUERY_OK+=("${host}|${payload}")
+      QUERY_TOTAL_KB=$((QUERY_TOTAL_KB + payload))
+    else
+      QUERY_ERR+=("${host}|${payload}")
+    fi
+  done
+
+  rm -rf "$tmpdir"
+}
+
+# Look up a username's numeric uid through nsswitch, so a directory-only
+# account resolves the same as a local one. A numeric argument passes
+# through, since getent accepts a uid as a key.
+function resolve_uid {
+  local uid
+  uid=$(getent passwd "$1" 2>/dev/null | cut -d: -f3)
+  [[ $uid =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "$uid"
+}
+
+# ---------------------------------------------------------------------------
+# Reporting
+# ---------------------------------------------------------------------------
+
+# The brief table's header. Column widths match the Python client's -b
+# output so anything already parsing it keeps working.
+function print_table_header {
+  local with_email=${1:-0}
+  printf '%-20s %10s %12s %8s' 'User' 'Used' 'Hard Quota' '% Used'
+  ((with_email)) && printf '  %s' 'Email'
+  printf '\n'
+  printf '%-20s %10s %12s %8s' '--------------------' '----------' \
+    '------------' '--------'
+  ((with_email)) && printf '  %s' '------------------------------'
+  printf '\n'
+}
+
+function print_table_row {
+  local user=$1 used_kb=$2 quota_kb=$3 email=${4:-}
+  local pct quota_str pct_str
+
+  quota_str='-'
+  ((quota_kb > 0)) && quota_str=$(format_size "$quota_kb")
+  if pct=$(format_pct "$used_kb" "$quota_kb"); then
+    pct_str="${pct}%"
+  else
+    pct_str='-'
+  fi
+
+  printf '%-20s %10s %12s %8s' \
+    "$user" "$(format_size "$used_kb")" "$quota_str" "$pct_str"
+  [[ -n $email ]] && printf '  %s' "$email"
+  printf '\n'
+}
+
+# The --full report for a single user: totals, then what each server holds.
+function print_full_report {
+  local user=$1 used_kb=$2 quota_kb=$3
+  local rule entry host kb pct share
+
+  rule=$(printf '%.0s=' {1..50})
+  printf '\n%s\n' "$rule"
+  printf 'User:       %s\n' "$user"
+  printf 'Total used: %s\n' "$(format_size "$used_kb")"
+  if ((quota_kb > 0)); then
+    printf 'Hard quota: %s\n' "$(format_size "$quota_kb")"
+    pct=$(format_pct "$used_kb" "$quota_kb") && printf '%% used:     %s%%\n' "$pct"
+  elif [[ -n $QUOTA_FILE ]]; then
+    printf 'Hard quota: (user not in %s)\n' "$QUOTA_FILE"
+  else
+    printf 'Hard quota: (no quota file on this host)\n'
+  fi
+  printf 'Hosts OK:   %s/%s\n' "${#QUERY_OK[@]}" "${#HOSTS[@]}"
+  ((${#QUERY_ERR[@]})) &&
+    printf 'Hosts ERR:  %s/%s\n' "${#QUERY_ERR[@]}" "${#HOSTS[@]}"
+
+  if ((${#QUERY_OK[@]})); then
+    printf '\nPer-host breakdown:\n'
+    while IFS='|' read -r host kb; do
+      share='-'
+      pct=$(format_pct "$kb" "$used_kb") && share="${pct}%"
+      printf '  %-30s %10s  (%s)\n' "$host" "$(format_size "$kb")" "$share"
+    done < <(printf '%s\n' "${QUERY_OK[@]}" | sort -t'|' -k2,2nr)
+  fi
+
+  if ((${#QUERY_ERR[@]})); then
+    printf '\nUnreachable:\n'
+    for entry in "${QUERY_ERR[@]}"; do
+      printf '  %-30s %s\n' "${entry%%|*}" "${entry#*|}"
+    done
+  fi
+  printf '%s\n' "$rule"
+}
+
+# One JSON object per user, shaped the same in single-user and --all mode so
+# a caller does not have to special-case which one it asked for.
+function print_json_user {
+  local user=$1 uid=$2 used_kb=$3 quota_kb=$4
+  local out entry first pct
+
+  out="{\"user\":$(json_string_or_null "$user"),\"uid\":${uid}"
+  out+=",\"used_kb\":${used_kb},\"used\":\"$(format_size "$used_kb")\""
+  if ((quota_kb > 0)); then
+    out+=",\"quota_kb\":${quota_kb},\"quota\":\"$(format_size "$quota_kb")\""
+    pct=$(format_pct "$used_kb" "$quota_kb")
+    out+=",\"percent\":${pct}"
+  else
+    out+=',"quota_kb":null,"quota":null,"percent":null'
+  fi
+  out+=",\"email\":$(json_string_or_null "${QUOTA_EMAIL[$user]:-}")"
+  out+=",\"hosts_ok\":${#QUERY_OK[@]},\"hosts_total\":${#HOSTS[@]}"
+
+  out+=',"hosts":['
+  first=1
+  for entry in ${QUERY_OK[@]+"${QUERY_OK[@]}"}; do
+    ((first)) || out+=','
+    first=0
+    out+="{\"host\":\"${entry%%|*}\",\"used_kb\":${entry#*|}"
+    out+=",\"used\":\"$(format_size "${entry#*|}")\"}"
+  done
+  out+='],"errors":['
+  first=1
+  for entry in ${QUERY_ERR[@]+"${QUERY_ERR[@]}"}; do
+    ((first)) || out+=','
+    first=0
+    out+="{\"host\":\"${entry%%|*}\",\"message\":$(json_string_or_null "${entry#*|}")}"
+  done
+  out+=']}'
+  printf '%s' "$out"
+}
+
+# ---------------------------------------------------------------------------
+# Mail
+#
+# Spoken directly over /dev/tcp rather than handed to sendmail(8): compute
+# nodes have no MTA, and the Python client talked to the smarthost directly
+# too, so this keeps --email working wherever the script is installed.
+# ---------------------------------------------------------------------------
+
+# Read one reply off fd 3 into SMTP_REPLY and check its class. A multi-line
+# reply puts a hyphen after the code on every line but the last, so keep
+# reading until a line has a space (or nothing) there instead.
+function smtp_expect {
+  local want=$1 line code=''
+  SMTP_REPLY=''
+  while IFS= read -r -t "$TIMEOUT" line <&3; do
+    line=${line%$'\r'}
+    SMTP_REPLY=$line
+    [[ $line =~ ^([0-9]{3})([[:space:]]|$) ]] || continue
+    code=${BASH_REMATCH[1]}
+    break
+  done
+  [[ -n $code && $code == "$want"* ]]
+}
+
+function smtp_cmd {
+  local want=$1 cmd=$2
+  printf '%s\r\n' "$cmd" >&3
+  smtp_expect "$want" && return 0
+  # Log the verb only: the argument is either an address we already print
+  # elsewhere or a header we are about to send anyway.
+  SMTP_ERROR="${cmd%% *}: ${SMTP_REPLY:-no reply}"
+  return 1
+}
+
+function smtp_conversation {
+  local to=$1 cc=$2 subject=$3 body=$4
+  local line helo
+
+  helo=$(hostname -f 2>/dev/null) || helo=$(hostname)
+
+  smtp_expect 2 || {
+    SMTP_ERROR="greeting: ${SMTP_REPLY:-no reply}"
+    return 1
+  }
+  smtp_cmd 2 "EHLO ${helo}" || return 1
+  smtp_cmd 2 "MAIL FROM:<${SMTP_FROM}>" || return 1
+  smtp_cmd 2 "RCPT TO:<${to}>" || return 1
+  if [[ -n $cc ]]; then
+    smtp_cmd 2 "RCPT TO:<${cc}>" || return 1
+  fi
+  smtp_cmd 3 "DATA" || return 1
+
+  {
+    printf 'Date: %s\r\n' "$(date -R)"
+    printf 'From: %s\r\n' "$SMTP_FROM"
+    printf 'To: %s\r\n' "$to"
+    [[ -n $cc ]] && printf 'Cc: %s\r\n' "$cc"
+    printf 'Subject: %s\r\n' "$subject"
+    printf 'MIME-Version: 1.0\r\n'
+    printf 'Content-Type: text/plain; charset=utf-8\r\n'
+    printf '\r\n'
+  } >&3
+
+  # Dot-stuffing: a body line starting with "." would otherwise be read as
+  # the end-of-message marker.
+  while IFS= read -r line; do
+    [[ $line == .* ]] && line=".${line}"
+    printf '%s\r\n' "$line" >&3
+  done <<<"$body"
+
+  printf '.\r\n' >&3
+  smtp_expect 2 || {
+    SMTP_ERROR="message: ${SMTP_REPLY:-no reply}"
+    return 1
+  }
+
+  printf 'QUIT\r\n' >&3
+  smtp_expect 2
+  return 0
+}
+
+# The __smtp entry point: connect, hand off to the conversation, and report
+# the failure on stderr. This runs as a re-exec of the script rather than
+# inline (see smtp_send) so that timeout(1) can bound the whole exchange.
+# The body arrives on stdin, since it is the one argument with newlines in it.
+function smtp_worker {
+  local to=$1 cc=$2 subject=$3
+  local host=${SMTP_SERVER%%:*} port=25 body rc=0
+
+  [[ $SMTP_SERVER == *:* ]] && port=${SMTP_SERVER##*:}
+  body=$(cat)
+
+  # The redirection is scoped to the brace group, not applied with `exec`:
+  # `exec 3<>X 2>/dev/null` opens the fds left to right, so it neither
+  # silences a failed connect nor — worse, when the connect succeeds —
+  # avoids sending every later warning on this shell to /dev/null.
+  { exec 3<>"/dev/tcp/${host}/${port}"; } 2>/dev/null || {
+    echo 1>&2 "cannot connect to ${host}:${port}"
+    return 1
+  }
+
+  smtp_conversation "$to" "$cc" "$subject" "$body"
+  rc=$?
+
+  exec 3<&-
+  exec 3>&-
+  ((rc == 0)) || echo 1>&2 "$SMTP_ERROR"
+  return $rc
+}
+
+# Send one message, in a child bounded by timeout(1). A TCP connect has no
+# timeout of its own, and neither does a write to a server that has stopped
+# reading, so an unresponsive smarthost would otherwise stall the whole
+# --email run somewhere the per-reply read timeout cannot see. Configuration
+# reaches the child through the environment it already reads its defaults
+# from. Returns 1 with SMTP_ERROR set.
+function smtp_send {
+  local to=$1 cc=$2 subject=$3 body=$4
+  local status
+
+  SMTP_ERROR=''
+  SMTP_ERROR=$(printf '%s' "$body" |
+    QUOTA_CHECK_SMTP_SERVER="$SMTP_SERVER" \
+      QUOTA_CHECK_SMTP_FROM="$SMTP_FROM" \
+      QUOTA_CHECK_TIMEOUT="$TIMEOUT" \
+      timeout "$TIMEOUT" "$BASH" "$SCRIPT_PATH" __smtp "$to" "$cc" "$subject" 2>&1)
+  status=$?
+
+  ((status == 0)) && return 0
+  ((status == 124)) && SMTP_ERROR="timed out after ${TIMEOUT}s"
+  [[ -n $SMTP_ERROR ]] || SMTP_ERROR="send failed (exit ${status})"
+  return 1
+}
+
+function send_quota_email {
+  local user=$1 email=$2 used_kb=$3 quota_kb=$4 pct=$5 dry_run=$6
+  local subject body
+
+  subject="Storage quota exceeded: ${user}"
+  body="Dear ${user},
+
+Your storage usage has exceeded your allocated quota:
+
+  Used:       $(format_size "$used_kb")
+  Hard quota: $(format_size "$quota_kb")
+  % Used:     ${pct}%
+
+Please reduce your storage usage or contact ${ADMIN_CONTACT} to request a
+quota increase.
+
+Check your quota with command quota_check
+
+This is an automated message. Do not reply to this email."
+
+  if ((dry_run)); then
+    printf '  [DRY RUN] would email %s: %s\n' "$email" "$subject"
+    return 0
+  fi
+
+  if smtp_send "$email" "$SMTP_CC" "$subject" "$body"; then
+    printf '  emailed %s (%s: %s%% used)\n' "$email" "$user" "$pct"
+    return 0
+  fi
+  warn "failed to email ${email}: ${SMTP_ERROR}"
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# Command line
+# ---------------------------------------------------------------------------
+
+function usage {
+  cat <<EOF
+Usage: quota_check [OPTIONS]
+
+Report /beevol storage usage against your hard quota, summed across all
+${#DEFAULT_HOSTS[@]} storage servers.
+
+Options:
+  -u, --user USER       User to report on (default: \$USER)
+  -f, --full            Add the per-server breakdown
+      --json            Machine-readable output
+  -a, --all             Report on every user in the quota file
+  -h, --help            Show this help message
+  -V, --version         Show version
+
+Admin options:
+  -e, --email           Email users over 100% of quota (requires --all)
+      --dry-run         With --email, list who would be mailed
+  -H, --hosts LIST      Storage servers to query (comma- or space-separated)
+  -p, --port PORT       Daemon port (default: ${PORT})
+  -q, --quota-file PATH Hard quotas (default: first readable of
+                        ${QUOTA_FILE_CANDIDATES[*]})
+  -t, --timeout SECS    Per-server timeout (default: ${TIMEOUT})
+
+Examples:
+  quota_check                    # your usage, one line
+  quota_check --full             # plus which server holds what
+  quota_check -u jdoe            # someone else's usage
+  quota_check --all              # every user (admin)
+
+The summary is the default; -b/--brief is accepted and does nothing, since
+that is now the only thing you get without --full.
+
+Without a quota file the "Hard Quota" and "% Used" columns read "-": usage
+comes from the daemons, but the limits do not. See man quota_check for the
+QUOTA_CHECK_* environment variables and for publishing the quota file to
+the compute nodes.
+EOF
+  exit 0
+}
+
+# Split a --hosts argument on commas or whitespace. Repeating the flag
+# appends, so both "-H a,b" and "-H a -H b" work.
+function parse_hosts {
+  local raw=$1 host
+  local -a parsed=()
+  raw=${raw//,/ }
+  for host in $raw; do
+    parsed+=("$host")
+  done
+  ((${#parsed[@]})) || die "--hosts needs at least one host."
+  if ((HOSTS_OVERRIDDEN)); then
+    HOSTS+=("${parsed[@]}")
+  else
+    HOSTS=("${parsed[@]}")
+    HOSTS_OVERRIDDEN=1
+  fi
+}
+
+QUOTA_FILE=''
+HOSTS_OVERRIDDEN=0
+
+function main {
+  # Internal entry point, re-executed by smtp_send under timeout(1). Not a
+  # documented subcommand: it exists so the mail exchange has a process of
+  # its own to be killed.
+  if [[ "${1:-}" == '__smtp' ]]; then
+    shift
+    [[ $# -eq 3 ]] || die "__smtp takes TO, CC and SUBJECT."
+    smtp_worker "$@"
+    return
+  fi
+
+  local user="${QUOTA_CHECK_USER:-${USER:-$(id -un)}}"
+  local quota_file_arg=''
+  local do_full=0 do_json=0 do_all=0 do_email=0 dry_run=0
+  local uid quota_kb pct email_addr emailed=0
+  local first=1
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -h | --help)
+      usage
+      ;;
+    -V | --version)
+      echo "quota_check ${VERSION}"
+      exit 0
+      ;;
+    -f | --full)
+      do_full=1
+      shift
+      ;;
+    # The summary is the default now. -b stays accepted because it is what
+    # the over-quota notification mail has been telling people to run.
+    -b | --brief)
+      shift
+      ;;
+    --json)
+      do_json=1
+      shift
+      ;;
+    -a | --all)
+      do_all=1
+      shift
+      ;;
+    -e | --email)
+      do_email=1
+      shift
+      ;;
+    --dry-run)
+      dry_run=1
+      shift
+      ;;
+    -u | --user)
+      [[ -n ${2:-} ]] || die "$1 requires a USER argument."
+      user="$2"
+      shift 2
+      ;;
+    --user=*)
+      user="${1#--user=}"
+      [[ -n $user ]] || die "--user= requires a USER argument."
+      shift
+      ;;
+    -H | --hosts)
+      [[ -n ${2:-} ]] || die "$1 requires a host list."
+      parse_hosts "$2"
+      shift 2
+      ;;
+    --hosts=*)
+      parse_hosts "${1#--hosts=}"
+      shift
+      ;;
+    -p | --port)
+      [[ -n ${2:-} ]] || die "$1 requires a PORT argument."
+      PORT="$2"
+      shift 2
+      ;;
+    --port=*)
+      PORT="${1#--port=}"
+      shift
+      ;;
+    -q | --quota-file)
+      [[ -n ${2:-} ]] || die "$1 requires a PATH argument."
+      quota_file_arg="$2"
+      shift 2
+      ;;
+    --quota-file=*)
+      quota_file_arg="${1#--quota-file=}"
+      shift
+      ;;
+    -t | --timeout)
+      [[ -n ${2:-} ]] || die "$1 requires a SECONDS argument."
+      TIMEOUT="$2"
+      shift 2
+      ;;
+    --timeout=*)
+      TIMEOUT="${1#--timeout=}"
+      shift
+      ;;
+    --smtp-server)
+      [[ -n ${2:-} ]] || die "$1 requires a HOST argument."
+      SMTP_SERVER="$2"
+      shift 2
+      ;;
+    --smtp-server=*)
+      SMTP_SERVER="${1#--smtp-server=}"
+      shift
+      ;;
+    --smtp-from)
+      [[ -n ${2:-} ]] || die "$1 requires an ADDRESS argument."
+      SMTP_FROM="$2"
+      shift 2
+      ;;
+    --smtp-from=*)
+      SMTP_FROM="${1#--smtp-from=}"
+      shift
+      ;;
+    --smtp-cc)
+      [[ -n ${2:-} ]] || die "$1 requires an ADDRESS argument."
+      SMTP_CC="$2"
+      shift 2
+      ;;
+    --smtp-cc=*)
+      SMTP_CC="${1#--smtp-cc=}"
+      shift
+      ;;
+    --no-smtp-cc)
+      SMTP_CC=''
+      shift
+      ;;
+    *)
+      echo 1>&2 "Error: unrecognized option '$1'."
+      echo 1>&2 "Run 'quota_check --help' to see all options."
+      exit 1
+      ;;
+    esac
+  done
+
+  [[ $PORT =~ ^[0-9]+$ ]] || die "--port must be a number (got '${PORT}')."
+  [[ $TIMEOUT =~ ^[0-9]+$ ]] || die "--timeout must be a number (got '${TIMEOUT}')."
+  ((TIMEOUT > 0)) || die "--timeout must be at least 1 second."
+  ((do_email && !do_all)) && die "--email requires --all."
+  if ((do_email)); then
+    [[ $SMTP_SERVER =~ ^[^:]+(:[0-9]+)?$ ]] ||
+      die "--smtp-server must be HOST or HOST:PORT (got '${SMTP_SERVER}')."
+    [[ -x $SCRIPT_PATH || -r $SCRIPT_PATH ]] ||
+      die "cannot locate this script at '${SCRIPT_PATH}' to send mail."
+  fi
+
+  if [[ -n $quota_file_arg ]]; then
+    [[ -r $quota_file_arg ]] || die "quota file not readable: ${quota_file_arg}"
+    QUOTA_FILE="$quota_file_arg"
+  else
+    QUOTA_FILE=$(find_quota_file) || QUOTA_FILE=''
+  fi
+  [[ -n $QUOTA_FILE ]] && load_quota_file "$QUOTA_FILE"
+
+  # ---- every user in the quota file ----------------------------------------
+  if ((do_all)); then
+    [[ -n $QUOTA_FILE ]] ||
+      die "--all needs a quota file; none of ${QUOTA_FILE_CANDIDATES[*]} is readable."
+    ((${#QUOTA_USERS[@]})) || die "no users in ${QUOTA_FILE}."
+
+    ((do_json)) || echo 1>&2 "Querying ${#QUOTA_USERS[@]} user(s) across ${#HOSTS[@]} host(s)..."
+    ((do_json)) || print_table_header "$do_email"
+    ((do_json)) && printf '['
+
+    for user in "${QUOTA_USERS[@]}"; do
+      if ! uid=$(resolve_uid "$user"); then
+        ((do_json)) || warn "user '${user}' has no account on this host, skipping"
+        continue
+      fi
+      query_user "$uid"
+      quota_kb=${QUOTA_KB[$user]:-0}
+      email_addr=${QUOTA_EMAIL[$user]:-}
+
+      if ((do_json)); then
+        ((first)) || printf ','
+        first=0
+        print_json_user "$user" "$uid" "$QUERY_TOTAL_KB" "$quota_kb"
+        continue
+      fi
+
+      if ((do_email)); then
+        print_table_row "$user" "$QUERY_TOTAL_KB" "$quota_kb" "${email_addr:--}"
+      else
+        print_table_row "$user" "$QUERY_TOTAL_KB" "$quota_kb"
+        continue
+      fi
+
+      pct=$(format_pct "$QUERY_TOTAL_KB" "$quota_kb") || continue
+      # String compare would put "99.9" above "100.7"; compare tenths.
+      ((${pct%.*} * 10 + ${pct#*.} > 1000)) || continue
+      if [[ -z $email_addr ]]; then
+        warn "no email address for ${user}, skipping"
+        continue
+      fi
+      send_quota_email "$user" "$email_addr" "$QUERY_TOTAL_KB" "$quota_kb" \
+        "$pct" "$dry_run" && emailed=$((emailed + 1))
+    done
+
+    if ((do_json)); then
+      printf ']\n'
+    elif ((do_email)); then
+      local verb='Emailed'
+      ((dry_run)) && verb='Would have emailed'
+      printf '\n%s %s user(s) over quota.\n' "$verb" "$emailed"
+    fi
+    return 0
+  fi
+
+  # ---- one user ------------------------------------------------------------
+  [[ -n $user ]] || die "could not determine a username; pass --user."
+  uid=$(resolve_uid "$user") || die "user '${user}' not found on this host."
+
+  ((do_full && !do_json)) &&
+    echo 1>&2 "Querying ${#HOSTS[@]} host(s) for user '${user}'..."
+
+  query_user "$uid"
+  quota_kb=${QUOTA_KB[$user]:-0}
+
+  if ((do_json)); then
+    print_json_user "$user" "$uid" "$QUERY_TOTAL_KB" "$quota_kb"
+    printf '\n'
+  elif ((do_full)); then
+    print_full_report "$user" "$QUERY_TOTAL_KB" "$quota_kb"
+  else
+    print_table_header
+    print_table_row "$user" "$QUERY_TOTAL_KB" "$quota_kb"
+    # A total summed from three of nine servers is not a quota check, and
+    # the brief table has nowhere to say so.
+    ((${#QUERY_ERR[@]})) &&
+      warn "${#QUERY_ERR[@]} of ${#HOSTS[@]} storage servers did not answer; run with --full for details."
+  fi
+
+  # Nothing answered at all: the number printed is 0 for a reason the caller
+  # needs to notice.
+  ((${#QUERY_OK[@]})) || exit 1
+  return 0
+}
+
+main "$@"

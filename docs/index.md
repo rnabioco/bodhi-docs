@@ -34,6 +34,10 @@ Bodhi has migrated from IBM Spectrum LSF to **SLURM**. Our SLURM documentation c
 
     Verify with `squeue --me` after launching a new session — the job should show `Partition=positron`.
 
+## Storage Quota
+
+- [**Storage Quota**](storage-quota.md) — checking your `/beevol` usage with `quota_check`, and what to do when you are near the limit
+
 ## Backups
 
 Guidelines for backing up your data on the Bodhi cluster.

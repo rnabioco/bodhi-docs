@@ -24,6 +24,7 @@ nav = [
     {"Resources" = "resources.md"},
   ]},
   {"Positron SSH" = "https://github.com/rnabioco/remote-ssh-positron"},
+  {"Storage Quota" = "storage-quota.md"},
   {"Backups" = [
     {"Backup Instructions" = "backups.md"},
     {"PetaLibrary" = "https://curc.readthedocs.io/en/latest/petalibrary/index.html#"},

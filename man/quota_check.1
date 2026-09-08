@@ -1,0 +1,270 @@
+.TH QUOTA_CHECK 1 "August 2026" "bodhi" "User Commands"
+.SH NAME
+quota_check \- report /beevol storage usage against your hard quota
+.SH SYNOPSIS
+.B quota_check
+.RI [ OPTIONS ]
+.br
+.B quota_check
+.RB [ \-\-full | \-\-json ]
+.RB [ \-u
+.IR USER ]
+.br
+.B quota_check \-\-all
+.RB [ \-\-email ]
+.RB [ \-\-dry\-run ]
+.SH DESCRIPTION
+.B quota_check
+reports how much space a user is occupying on
+.IR /beevol ,
+and how that compares with the hard quota the administrators have set.
+.PP
+Usage is not held in one place. Each of the nine storage servers behind
+.I /beevol
+runs a small quota daemon that answers
+.BI "QUOTA " uid
+on TCP port 9878 with
+.BI "OK " kilobytes
+for its own share.
+.B quota_check
+asks all of them at once and adds the answers up, so one slow or
+unreachable server costs a line of output rather than the whole report.
+.PP
+The daemons do not know what anyone's limit is. That comes from a
+pipe-delimited file the administrators maintain \(em see
+.B QUOTA FILE
+below. Without it, usage still reports and the
+.B Hard Quota
+and
+.B % Used
+columns read
+.BR \- .
+.PP
+With no options,
+.B quota_check
+prints a single summary line for the current user. Ask for
+.B \-\-full
+to see which server holds what.
+.PP
+This is a shell rewrite of the earlier Python
+.BR quota_client.py .
+The one deliberate change in behaviour is that the summary is now the
+default: the old version printed the whole per-server breakdown unless
+you remembered
+.BR \-b .
+That option is still accepted and now does nothing, because the
+over-quota notification mail has been telling people to run
+.B quota_check \-b
+for years.
+.SH OPTIONS
+.TP
+.BI \-u\fR,\ \fB\-\-user\  USER
+Report on
+.I USER
+instead of the current user. Accepts a numeric uid as well as a name.
+The account must resolve through
+.BR getent (1)
+on the host you run this from.
+.TP
+.BR \-f ", " \-\-full
+Add the per-server breakdown, the number of servers that answered, and
+what the ones that did not had to say.
+.TP
+.B \-\-json
+Emit one JSON object per user \(em a bare object for a single user, an
+array under
+.BR \-\-all .
+Sizes appear twice, as raw
+.B _kb
+integers and as the formatted strings the tables print.
+.B percent
+is
+.B null
+when there is no quota to compare against.
+.TP
+.BR \-a ", " \-\-all
+Report on every user named in the quota file rather than just one. Users
+in the file with no account on this host are skipped with a warning.
+.TP
+.BR \-b ", " \-\-brief
+Accepted and ignored; this is the default. See
+.B DESCRIPTION
+above.
+.TP
+.BR \-h ", " \-\-help
+Show a short help message.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH ADMIN OPTIONS
+.TP
+.BR \-e ", " \-\-email
+Mail every user over 100% of their quota, using the address in the third
+field of the quota file. Requires
+.BR \-\-all .
+Users over quota with no address in the file are reported on stderr and
+skipped.
+.TP
+.B \-\-dry\-run
+With
+.BR \-\-email ,
+list who would be mailed without sending anything. Always run this first.
+.TP
+.BI \-H\fR,\ \fB\-\-hosts\  LIST
+Storage servers to query, comma- or space-separated. Repeating the option
+appends, so the first
+.B \-H
+replaces the built-in list and later ones extend it.
+.TP
+.BI \-p\fR,\ \fB\-\-port\  PORT
+Quota daemon port. Default 9878.
+.TP
+.BI \-q\fR,\ \fB\-\-quota\-file\  PATH
+Read hard quotas from
+.I PATH
+instead of searching the default locations.
+.TP
+.BI \-t\fR,\ \fB\-\-timeout\  SECONDS
+How long to wait on any one storage server, and on the mail server.
+Default 10.
+.TP
+.BI \-\-smtp\-server\  HOST\fR[:\fIPORT\fR]
+Mail relay for
+.BR \-\-email .
+Default
+.BR mail.ucdenver.pvt .
+.TP
+.BI \-\-smtp\-from\  ADDRESS
+Envelope and header sender. Default
+.BR noreply@cuanschutz.edu .
+.TP
+.BI \-\-smtp\-cc\  ADDRESS
+Copy every notification here. Defaults to the storage administrator.
+.TP
+.B \-\-no\-smtp\-cc
+Send notifications to the user only.
+.SH QUOTA FILE
+One user per line, pipe-delimited, with the notification address optional:
+.PP
+.RS
+.nf
+jdoe|21.48TiB|jdoe@example.com
+.fi
+.RE
+.PP
+Whitespace around the fields is padding rather than data. Blank lines and
+lines beginning with
+.B #
+are ignored, as is any line without at least a username and a size. Sizes
+accept the
+.BR xfs_quota (8)
+suffixes
+.RB ( K ", " M ", " G ", " T ", " P )
+and their IEC spellings
+.RB ( KiB ", " MiB ", " GiB ", " TiB ", " PiB ),
+in either case.
+.PP
+The file is searched for in this order, first readable copy winning:
+.TP
+.I /etc/quota_current.txt
+The administrators' copy. Head node only.
+.TP
+.I /cluster/share/quota_current.txt
+An NFS mount every node has, which is what makes
+.B % Used
+work on a compute node. Publish it with
+.B make publish\-quota\-file
+from the same job that regenerates
+.IR /etc/quota_current.txt ,
+or the compute nodes will report against a stale limit.
+.SH ENVIRONMENT
+Each of these supplies a default that the matching option overrides.
+.TP
+.B QUOTA_CHECK_USER
+User to report on when
+.B \-\-user
+is not given, ahead of
+.BR $USER .
+.TP
+.B QUOTA_CHECK_PORT
+Quota daemon port.
+.TP
+.B QUOTA_CHECK_TIMEOUT
+Per-server timeout, in seconds.
+.TP
+.BR QUOTA_CHECK_SMTP_SERVER ", " QUOTA_CHECK_SMTP_FROM ", " QUOTA_CHECK_SMTP_CC
+Mail relay, sender, and copy address for
+.BR \-\-email .
+.TP
+.B QUOTA_CHECK_ADMIN
+Address the notification mail tells users to contact about a quota
+increase.
+.SH EXIT STATUS
+.TP
+.B 0
+The report was produced.
+.TP
+.B 1
+No storage server answered, or the command line was wrong. Being over
+quota is not an error \(em the number in the
+.B % Used
+column is the answer, not a failure.
+.SH EXAMPLES
+Your usage, one line:
+.PP
+.RS
+.nf
+quota_check
+.fi
+.RE
+.PP
+Which server is holding it all:
+.PP
+.RS
+.nf
+quota_check \-\-full
+.fi
+.RE
+.PP
+Someone else's usage, as an administrator:
+.PP
+.RS
+.nf
+quota_check \-u jdoe \-\-full
+.fi
+.RE
+.PP
+Percentage for a script or a status bar:
+.PP
+.RS
+.nf
+quota_check \-\-json | jq \-r '.percent'
+.fi
+.RE
+.PP
+The monthly over-quota mailing, checked before it goes out:
+.PP
+.RS
+.nf
+quota_check \-\-all \-\-email \-\-dry\-run
+quota_check \-\-all \-\-email
+.fi
+.RE
+.SH NOTES
+Nothing outside bash and coreutils is required. TCP goes through bash's
+.IR /dev/tcp ,
+and so does SMTP, because the compute nodes have no local mail transfer
+agent to hand a message to.
+.PP
+Under
+.B \-\-all
+the servers are queried in parallel for each user but the users are
+walked one at a time, which keeps the daemons from seeing several hundred
+concurrent connections.
+.SH SEE ALSO
+.BR sinteractive (1),
+.BR getent (1),
+.BR xfs_quota (8)
+.SH AUTHOR
+Jay Hesselberth. Rewritten in shell from the original Python
+.BR quota_client.py .
