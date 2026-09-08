@@ -25,17 +25,23 @@ install-user:
 	chmod +x $(PREFIX)/bodhi-splash
 	cp scripts/repo-audit $(PREFIX)/repo-audit
 	chmod +x $(PREFIX)/repo-audit
+	cp scripts/repo-audit-slurm $(PREFIX)/repo-audit-slurm
+	chmod +x $(PREFIX)/repo-audit-slurm
 
 
 install-system:
 	install -m 0644 scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
 	install -m 0755 scripts/repo-audit /usr/local/bin/repo-audit
+	install -m 0755 scripts/repo-audit-slurm /usr/local/bin/repo-audit-slurm
 
-# repo-audit on its own, for a user who wants just this one tool.
+# repo-audit and its Slurm driver, for a user who wants just this pair.
+# Installed together into the same PREFIX: repo-audit-slurm finds repo-audit
+# next to itself.
 install-repo-audit:
 	mkdir -p $(PREFIX)
 	install -m 0755 scripts/repo-audit $(PREFIX)/repo-audit
-	@echo "installed repo-audit to $(PREFIX)"
+	install -m 0755 scripts/repo-audit-slurm $(PREFIX)/repo-audit-slurm
+	@echo "installed repo-audit and repo-audit-slurm to $(PREFIX)"
 
 # ---------------------------------------------------------------------------
 # tmux — build the latest release from source and install to $(TMUX_PREFIX).
