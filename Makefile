@@ -11,7 +11,7 @@ MANDIR ?= ~/.local/share/man/man1
 # to fan the binary out to the compute nodes).
 UID := $(shell id -u)
 
-.PHONY: install install-user install-system
+.PHONY: install install-user install-system install-repo-audit
 
 ifeq ($(UID),0)
 install: install-system
@@ -23,10 +23,19 @@ install-user:
 	mkdir -p $(PREFIX)
 	cp scripts/bodhi-splash $(PREFIX)/bodhi-splash
 	chmod +x $(PREFIX)/bodhi-splash
+	cp scripts/repo-audit $(PREFIX)/repo-audit
+	chmod +x $(PREFIX)/repo-audit
 
 
 install-system:
 	install -m 0644 scripts/bodhi-splash /etc/profile.d/bodhi-splash.sh
+	install -m 0755 scripts/repo-audit /usr/local/bin/repo-audit
+
+# repo-audit on its own, for a user who wants just this one tool.
+install-repo-audit:
+	mkdir -p $(PREFIX)
+	install -m 0755 scripts/repo-audit $(PREFIX)/repo-audit
+	@echo "installed repo-audit to $(PREFIX)"
 
 # ---------------------------------------------------------------------------
 # tmux — build the latest release from source and install to $(TMUX_PREFIX).

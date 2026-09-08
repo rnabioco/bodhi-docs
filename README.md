@@ -38,6 +38,14 @@ Override the per-user location with `PREFIX`, e.g. `make install PREFIX=~/bin`.
 reports what each node actually has. The hard-quota table is published to the
 shared mount with `sudo make publish-quota-file`.
 
+`make install-repo-audit` installs just `repo-audit`, a read-only-by-default
+auditor for git worktree/branch/cargo-`target/` cleanup candidates across one
+or more directory trees (`repo-audit scan ~/devel ~/projects`), plus an
+`apply` mode that re-verifies each candidate against live state before acting
+and only ever prints what it would do unless given `--yes`. It never touches
+a worktree containing pod5/fast5/bam/cram/npz/npy/parquet/fastq/arrow files —
+those are always left for a human to look at.
+
 ### `sinteractive` lives elsewhere
 
 `sinteractive` is no longer part of this repository. It is maintained at
