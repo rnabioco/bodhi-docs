@@ -29,7 +29,10 @@ nav = [
     {"Backup Instructions" = "backups.md"},
     {"PetaLibrary" = "https://curc.readthedocs.io/en/latest/petalibrary/index.html#"},
   ]},
-  {"Admin" = "admin.md"},
+  {"Admin" = [
+    {"Admin Guide" = "admin.md"},
+    {"Lmod Migration" = "lmod-migration.md"},
+  ]},
   {"Getting Help" = "getting-help.md"},
 ]
 
