@@ -1,0 +1,664 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+#
+# repo-audit — find (and, on request, clean up) stale git worktrees, merged
+# branches, and cargo target/ dirs across one or more directory trees.
+#
+# Two subcommands share one classification function, so a `scan` report and
+# an `apply` run can never disagree about what's safe:
+#
+#   repo-audit scan  [--hours N] [--jobs N] [--candidates FILE] ROOT...
+#   repo-audit apply [--yes] CANDIDATES-FILE
+#
+# `scan` is read-only. It walks every git repo under ROOT... and writes a
+# human-readable report to stdout plus a machine-readable candidates file
+# (default ./repo-audit-candidates.tsv) that `apply` consumes.
+#
+# `apply` re-runs the *same* classification against live state immediately
+# before acting — it never trusts a possibly-stale scan — and only ever
+# performs the correct semantic git/cargo operation (`git worktree remove`,
+# `git branch -d`, `cargo clean`), never a raw `rm -rf`. Without --yes it
+# only prints what it would do.
+#
+# NEVER-AUTOMATE RULE: a worktree containing any file matching a bulk-data
+# extension (.pod5 .fast5 .bam .cram .npz .npy .parquet .fastq .fq.gz
+# .arrow) is always flagged for a human, never a removal candidate, under
+# any flag combination. Symlinking canonical data into a worktree is the
+# sanctioned way to reference it (see this user's CLAUDE.md) — bulk-data
+# detection follows real files only (no -L), so a sanctioned symlink never
+# trips this rule. This is the one rule apply-mode can never override.
+#
+# A worktree is only ever a REMOVE-CANDIDATE if it is: not the repo's
+# default-branch worktree, not locked, not prunable/unreadable, not mid a
+# rebase/merge/cherry-pick/bisect, has no nested worktree living under it,
+# has no .gitmodules, has no bulk-data files, is not oversized with nothing
+# to explain it, is clean, is fully merged into the default branch, and its
+# last commit is older than --hours (default 48).
+#
+# A branch with no worktree is a `git branch -d` candidate only if it is
+# fully merged into the resolved default branch — computed independently of
+# `branch -d`'s own (context-dependent) merge check, which is then used as
+# a second, defense-in-depth gate rather than the sole one.
+#
+# A cargo target/ dir (confirmed by a sibling Cargo.toml) is a candidate for
+# `cargo clean` only if nothing inside it was modified within --hours.
+
+set -uo pipefail
+
+SELF=$(basename "$0")
+DEFAULT_HOURS=48
+OVERSIZED_BYTES=$((1024 * 1024 * 1024)) # 1 GiB, per this user's CLAUDE.md
+
+usage() {
+  cat <<EOF
+usage:
+  $SELF scan  [--hours N] [--jobs N] [--candidates FILE] [--report FILE] ROOT...
+  $SELF apply [--yes] CANDIDATES-FILE
+
+scan is read-only. apply re-verifies each candidate against live state
+before acting, and only ever prints what it would do unless --yes is given.
+See the header comment in this file for the full classification rules.
+EOF
+}
+
+say() { printf '%s\n' "$*"; }
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+# Default branch name for a repo: origin/HEAD, else local main/master/trunk,
+# else empty (caller must treat the whole repo as default-branch-unknown).
+resolve_default_branch() {
+  local repo="$1" b
+  b=$(git -C "$repo" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+  if [ -n "$b" ]; then
+    printf '%s\n' "${b#origin/}"
+    return
+  fi
+  local cand
+  for cand in main master trunk; do
+    if git -C "$repo" show-ref --verify --quiet "refs/heads/$cand"; then
+      printf '%s\n' "$cand"
+      return
+    fi
+  done
+  printf '\n'
+}
+
+# The ref to diff/merge-check against: origin/<default> if it exists, else
+# the local branch.
+resolve_default_ref() {
+  local repo="$1" default="$2"
+  if git -C "$repo" show-ref --verify --quiet "refs/remotes/origin/$default"; then
+    printf '%s\n' "origin/$default"
+  else
+    printf '%s\n' "$default"
+  fi
+}
+
+# Merged if the branch is a git-ancestor of the default ref, OR its tree is
+# identical (diff is empty) — the OR is required because a squash-merge
+# leaves no ancestry relationship even though the branch is fully landed.
+is_merged() {
+  local repo="$1" default_ref="$2" branch="$3"
+  git -C "$repo" rev-parse --verify --quiet "refs/heads/$branch" >/dev/null 2>&1 || return 1
+  if git -C "$repo" merge-base --is-ancestor "$branch" "$default_ref" 2>/dev/null; then
+    return 0
+  fi
+  if git -C "$repo" diff --quiet "$default_ref...$branch" -- 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+# Populates the parallel arrays WT_PATH/WT_BRANCH/WT_LOCKED/WT_PRUNABLE/
+# WT_DETACHED from `git worktree list --porcelain` for one repo.
+collect_worktrees() {
+  local repo="$1"
+  WT_PATH=() WT_BRANCH=() WT_LOCKED=() WT_PRUNABLE=() WT_DETACHED=()
+  local path="" branch="" locked="" prunable="" detached=""
+  __wt_flush() {
+    [ -n "$path" ] || return 0
+    WT_PATH+=("$path")
+    WT_BRANCH+=("$branch")
+    WT_LOCKED+=("$locked")
+    WT_PRUNABLE+=("$prunable")
+    WT_DETACHED+=("$detached")
+  }
+  while IFS= read -r line; do
+    case "$line" in
+    "worktree "*)
+      __wt_flush
+      path="${line#worktree }"
+      branch="" locked="" prunable="" detached=""
+      ;;
+    "branch "*) branch="${line#branch refs/heads/}" ;;
+    "detached") detached=1 ;;
+    "locked"*)
+      locked="${line#locked}"
+      locked="${locked# }"
+      [ -n "$locked" ] || locked="(no reason given)"
+      ;;
+    "prunable"*)
+      prunable="${line#prunable}"
+      prunable="${prunable# }"
+      [ -n "$prunable" ] || prunable="(no reason given)"
+      ;;
+    esac
+  done < <(git -C "$repo" worktree list --porcelain 2>/dev/null)
+  __wt_flush
+}
+
+# Does the worktree's private git-dir show an in-progress rebase/merge/
+# cherry-pick/bisect?
+mid_operation() {
+  local repo="$1" wt="$2" gd
+  gd=$(git -C "$wt" rev-parse --git-dir 2>/dev/null) || return 1
+  case "$gd" in /*) ;; *) gd="$wt/$gd" ;; esac
+  [ -d "$gd/rebase-merge" ] && return 0
+  [ -d "$gd/rebase-apply" ] && return 0
+  [ -f "$gd/MERGE_HEAD" ] && return 0
+  [ -f "$gd/CHERRY_PICK_HEAD" ] && return 0
+  [ -f "$gd/BISECT_LOG" ] && return 0
+  return 1
+}
+
+# Count of bulk-data files (real files only, no -L) under a worktree,
+# excluding test-fixture directories.
+count_bulk_files() {
+  local wt="$1"
+  find "$wt" -xdev \
+    \( -path '*/.git' -o -iname 'tests' -o -iname 'test' -o -iname 'fixtures' -o -iname 'testdata' \) -prune -o \
+    -type f \( \
+    -iname '*.pod5' -o -iname '*.fast5' -o -iname '*.bam' -o -iname '*.cram' -o \
+    -iname '*.npz' -o -iname '*.npy' -o -iname '*.parquet' -o -iname '*.fastq' -o \
+    -iname '*.fq.gz' -o -iname '*.arrow' \
+    \) -print 2>/dev/null | wc -l
+}
+
+# Classification: prints "VERDICT<TAB>reason". Shared by scan and apply so
+# they can never disagree.
+classify_worktree() {
+  local repo="$1" default="$2" default_ref="$3" path="$4" branch="$5" \
+    locked="$6" prunable="$7" detached="$8" has_nested="$9" hours="${10}"
+
+  if [ -z "$default" ]; then
+    printf 'FLAG\tdefault branch unknown\n'
+    return
+  fi
+  if [ -n "$branch" ] && [ "$branch" = "$default" ]; then
+    printf 'KEEP\tdefault-branch worktree\n'
+    return
+  fi
+  if [ -n "$locked" ]; then
+    printf 'FLAG\tlocked: %s\n' "$locked"
+    return
+  fi
+  if [ -n "$prunable" ]; then
+    printf 'FLAG\tprunable/unreadable (%s) -- try: git worktree repair %s\n' "$prunable" "$path"
+    return
+  fi
+  if [ ! -d "$path" ]; then
+    printf 'FLAG\tworktree directory missing on disk\n'
+    return
+  fi
+  if mid_operation "$repo" "$path"; then
+    printf 'FLAG\tmid-operation (rebase/merge/cherry-pick/bisect in progress)\n'
+    return
+  fi
+  if [ -f "$path/.gitmodules" ]; then
+    printf 'FLAG\tsubmodules present\n'
+    return
+  fi
+  if [ "$has_nested" = "1" ]; then
+    printf 'FLAG\thas a nested worktree checked out under it\n'
+    return
+  fi
+  local bulk
+  bulk=$(count_bulk_files "$path")
+  if [ "${bulk:-0}" -gt 0 ]; then
+    printf 'FLAG\t%s bulk-data file(s) present -- never auto-removed\n' "$bulk"
+    return
+  fi
+  local size_bytes
+  size_bytes=$(du -sb "$path" 2>/dev/null | cut -f1)
+  size_bytes=${size_bytes:-0}
+  if [ "$size_bytes" -gt "$OVERSIZED_BYTES" ]; then
+    printf 'FLAG\toversized (%s) with no bulk-data files found -- investigate\n' "$(numfmt --to=iec --suffix=B "$size_bytes" 2>/dev/null || echo "$size_bytes bytes")"
+    return
+  fi
+  if [ -n "$detached" ]; then
+    printf 'KEEP\tdetached HEAD -- not safe to auto-classify by branch identity\n'
+    return
+  fi
+  local dirty
+  dirty=$(git -C "$path" status --porcelain --ignore-submodules=none 2>/dev/null | wc -l)
+  if [ "${dirty:-0}" -gt 0 ]; then
+    printf 'KEEP\tdirty (%s changed path(s))\n' "$dirty"
+    return
+  fi
+  if ! is_merged "$repo" "$default_ref" "$branch"; then
+    local ahead
+    ahead=$(git -C "$repo" rev-list --count "$default_ref..$branch" 2>/dev/null)
+    printf 'KEEP\tnot merged into %s (%s commit(s) ahead)\n' "$default" "${ahead:-?}"
+    return
+  fi
+  local last_epoch now_epoch
+  last_epoch=$(git -C "$path" log -1 --format=%ct 2>/dev/null)
+  now_epoch=$(date +%s)
+  if [ -z "$last_epoch" ]; then
+    printf 'FLAG\tcould not read last-commit date\n'
+    return
+  fi
+  local age_hours=$(((now_epoch - last_epoch) / 3600))
+  if [ "$age_hours" -lt "$hours" ]; then
+    printf 'KEEP\trecently active (%sh old, threshold %sh)\n' "$age_hours" "$hours"
+    return
+  fi
+
+  local dev_wt dev_parent
+  dev_wt=$(stat -c %d "$path" 2>/dev/null)
+  dev_parent=$(stat -c %d "$(dirname "$path")" 2>/dev/null)
+  if [ -n "$dev_wt" ] && [ -n "$dev_parent" ] && [ "$dev_wt" != "$dev_parent" ]; then
+    printf 'FLAG\tworktree directory is its own mountpoint -- remove may partially fail\n'
+    return
+  fi
+
+  printf 'REMOVE-CANDIDATE\tclean, merged into %s, %sh since last commit\n' "$default" "$age_hours"
+}
+
+# Does any OTHER worktree of this repo live under $1?
+has_nested_worktree() {
+  local self="$1" i other
+  for ((i = 0; i < ${#WT_PATH[@]}; i++)); do
+    other="${WT_PATH[$i]}"
+    [ "$other" = "$self" ] && continue
+    case "$other" in
+    "$self"/*) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# ---------------------------------------------------------------------------
+# scan
+# ---------------------------------------------------------------------------
+
+# Runs in its own `bash -c` worker (via xargs -P), one repo per call. Writes
+# its own report/candidates files under $RA_TMPDIR -- never appends to a
+# shared file, since BeeGFS doesn't guarantee O_APPEND atomicity.
+audit_one_repo() {
+  local repo="$1"
+  local safe rep_file cand_file
+  safe=$(printf '%s' "$repo" | tr -c 'A-Za-z0-9' '_')
+  rep_file="$RA_TMPDIR/report.$safe"
+  cand_file="$RA_TMPDIR/candidates.$safe"
+  : >"$rep_file"
+  : >"$cand_file"
+
+  local default default_ref
+  default=$(resolve_default_branch "$repo")
+  default_ref=$(resolve_default_ref "$repo" "${default:-main}")
+
+  collect_worktrees "$repo"
+  {
+    printf '### %s (default: %s)\n' "$repo" "${default:-UNKNOWN}"
+    local i
+    for ((i = 0; i < ${#WT_PATH[@]}; i++)); do
+      local path="${WT_PATH[$i]}" branch="${WT_BRANCH[$i]}" locked="${WT_LOCKED[$i]}" \
+        prunable="${WT_PRUNABLE[$i]}" detached="${WT_DETACHED[$i]}" nested=0
+      has_nested_worktree "$path" && nested=1
+      local verdict reason
+      IFS=$'\t' read -r verdict reason < <(
+        classify_worktree "$repo" "$default" "$default_ref" "$path" "$branch" \
+          "$locked" "$prunable" "$detached" "$nested" "$RA_HOURS"
+      )
+      printf '%s | branch=%s | %s | %s\n' "$path" "${branch:-(detached)}" "$verdict" "$reason"
+      if [ "$verdict" = "REMOVE-CANDIDATE" ]; then
+        printf 'worktree-remove\t%s\t%s\n' "$path" "$reason" >>"$cand_file"
+      fi
+    done
+
+    printf -- '--- local branches with no worktree ---\n'
+    local b k has_wt
+    while IFS= read -r b; do
+      [ -n "$b" ] || continue
+      has_wt=0
+      for k in "${WT_BRANCH[@]}"; do
+        [ "$k" = "$b" ] && has_wt=1 && break
+      done
+      [ "$has_wt" -eq 1 ] && continue
+      [ -n "$default" ] && [ "$b" = "$default" ] && continue
+      if is_merged "$repo" "$default_ref" "$b"; then
+        printf 'branch=%s | MERGED -- git branch -d candidate\n' "$b"
+        printf 'branch-delete\t%s#%s\tmerged into %s\n' "$repo" "$b" "$default" >>"$cand_file"
+      else
+        printf 'branch=%s | not merged, keeping\n' "$b"
+      fi
+    done < <(git -C "$repo" for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null)
+
+    printf -- '--- cargo target/ dirs ---\n'
+    local -A seen=()
+    local td real newest now age
+    while IFS= read -r td; do
+      [ -f "$(dirname "$td")/Cargo.toml" ] || continue
+      real=$(cd "$td" 2>/dev/null && pwd -P) || continue
+      [ -n "${seen[$real]:-}" ] && continue
+      seen[$real]=1
+      newest=$(find "$real" -xdev -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+      newest=${newest%%.*}
+      if [ -z "$newest" ]; then
+        printf '%s | empty or unreadable, skipping\n' "$real"
+        continue
+      fi
+      now=$(date +%s)
+      age=$(((now - newest) / 3600))
+      if [ "$age" -ge "$RA_HOURS" ]; then
+        printf '%s | STALE-CANDIDATE | %sh since last write -- cargo clean candidate\n' "$real" "$age"
+        printf 'cargo-clean\t%s\t%sh since last write\n' "$real" "$age" >>"$cand_file"
+      else
+        printf '%s | active (%sh since last write)\n' "$real" "$age"
+      fi
+    done < <(find "$repo" -xdev -type d -name target -not -path '*/.git/*' 2>/dev/null)
+
+    printf '=== END %s ===\n' "$repo"
+  } >>"$rep_file"
+}
+export -f audit_one_repo resolve_default_branch resolve_default_ref is_merged \
+  collect_worktrees mid_operation count_bulk_files classify_worktree has_nested_worktree
+
+cmd_scan() {
+  local hours="$DEFAULT_HOURS" jobs=4 candidates="./repo-audit-candidates.tsv" report=""
+  local -a roots=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --hours)
+      hours="$2"
+      shift 2
+      ;;
+    --jobs)
+      jobs="$2"
+      shift 2
+      ;;
+    --candidates)
+      candidates="$2"
+      shift 2
+      ;;
+    --report)
+      report="$2"
+      shift 2
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      roots+=("$1")
+      shift
+      ;;
+    esac
+  done
+  if [ "${#roots[@]}" -eq 0 ]; then
+    echo "error: scan needs at least one ROOT" >&2
+    usage >&2
+    exit 1
+  fi
+
+  local -a repos=()
+  local -A seen_repo=()
+  local root d real
+  for root in "${roots[@]}"; do
+    while IFS= read -r d; do
+      real=$(cd "$d" 2>/dev/null && pwd -P) || continue
+      [ -n "${seen_repo[$real]:-}" ] && continue
+      seen_repo[$real]=1
+      repos+=("$real")
+    done < <(find "$root" -xdev -name .git -type d -prune -printf '%h\n' 2>/dev/null)
+  done
+
+  if [ "${#repos[@]}" -eq 0 ]; then
+    echo "no git repositories found under: ${roots[*]}" >&2
+    exit 0
+  fi
+
+  RA_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/repo-audit.XXXXXX")
+  export RA_TMPDIR
+  export RA_HOURS="$hours"
+  export OVERSIZED_BYTES
+
+  printf '%s\n' "${repos[@]}" | xargs -P "$jobs" -I{} bash -c 'audit_one_repo "$@"' _ {}
+
+  : >"$candidates"
+  {
+    echo "# repo-audit candidates -- generated $(date -Is), --hours=$hours"
+    echo "# action<TAB>target<TAB>reason -- edit freely before 'repo-audit apply', '#' comments and blank lines are skipped"
+  } >>"$candidates"
+  cat "$RA_TMPDIR"/candidates.* >>"$candidates" 2>/dev/null
+
+  if [ -n "$report" ]; then
+    cat "$RA_TMPDIR"/report.* >"$report"
+    cat "$report"
+  else
+    cat "$RA_TMPDIR"/report.*
+  fi
+
+  local n_remove n_branch n_cargo
+  n_remove=$(grep -c '^worktree-remove' "$candidates" 2>/dev/null)
+  n_branch=$(grep -c '^branch-delete' "$candidates" 2>/dev/null)
+  n_cargo=$(grep -c '^cargo-clean' "$candidates" 2>/dev/null)
+  say ""
+  say "=== summary ==="
+  say "repos scanned:            ${#repos[@]}"
+  say "worktree-remove candidates: $n_remove"
+  say "branch-delete candidates:   $n_branch"
+  say "cargo-clean candidates:     $n_cargo"
+  say "candidates file: $candidates"
+
+  rm -rf "$RA_TMPDIR"
+}
+
+# ---------------------------------------------------------------------------
+# apply
+# ---------------------------------------------------------------------------
+
+apply_worktree_remove() {
+  local wt="$1" yes="$2"
+  if [ ! -d "$wt" ]; then
+    say "SKIP(gone): $wt"
+    return
+  fi
+  local common_gitdir repo default default_ref branch
+  common_gitdir=$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  if [ -z "$common_gitdir" ]; then
+    say "SKIP(not a git worktree): $wt"
+    return
+  fi
+  repo=$(dirname "$common_gitdir")
+  branch=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null)
+  if [ -z "$branch" ]; then
+    say "SKIP(detached HEAD, not safe to auto-remove): $wt"
+    return
+  fi
+  default=$(resolve_default_branch "$repo")
+  default_ref=$(resolve_default_ref "$repo" "${default:-main}")
+  collect_worktrees "$repo"
+  local nested=0
+  has_nested_worktree "$wt" && nested=1
+  local locked="" prunable="" detached=""
+  local i
+  for ((i = 0; i < ${#WT_PATH[@]}; i++)); do
+    if [ "${WT_PATH[$i]}" = "$wt" ]; then
+      locked="${WT_LOCKED[$i]}"
+      prunable="${WT_PRUNABLE[$i]}"
+      detached="${WT_DETACHED[$i]}"
+      break
+    fi
+  done
+
+  local verdict reason
+  IFS=$'\t' read -r verdict reason < <(
+    classify_worktree "$repo" "$default" "$default_ref" "$wt" "$branch" \
+      "$locked" "$prunable" "$detached" "$nested" "$RA_HOURS"
+  )
+  if [ "$verdict" != "REMOVE-CANDIDATE" ]; then
+    say "SKIP(re-check now says $verdict: $reason): $wt"
+    return
+  fi
+  if [ "$yes" -ne 1 ]; then
+    say "DRYRUN would-remove: $wt"
+    return
+  fi
+  local err
+  if err=$(git -C "$repo" worktree remove "$wt" 2>&1); then
+    if git -C "$repo" worktree list --porcelain 2>/dev/null | grep -qxF "worktree $wt"; then
+      say "FAILED(still listed after remove, no error reported): $wt"
+    else
+      say "removed: $wt"
+    fi
+  else
+    say "FAILED($err): $wt"
+  fi
+}
+
+apply_branch_delete() {
+  local target="$1" yes="$2" repo branch default default_ref
+  repo="${target%%#*}"
+  branch="${target#*#}"
+  if [ ! -d "$repo" ]; then
+    say "SKIP(repo gone): $target"
+    return
+  fi
+  collect_worktrees "$repo"
+  local i
+  for ((i = 0; i < ${#WT_PATH[@]}; i++)); do
+    if [ "${WT_BRANCH[$i]}" = "$branch" ]; then
+      say "SKIP(now has a worktree, ${WT_PATH[$i]}): $target"
+      return
+    fi
+  done
+  default=$(resolve_default_branch "$repo")
+  if [ -z "$default" ]; then
+    say "SKIP(default branch unknown): $target"
+    return
+  fi
+  default_ref=$(resolve_default_ref "$repo" "$default")
+  if ! is_merged "$repo" "$default_ref" "$branch"; then
+    say "SKIP(no longer merged into $default): $target"
+    return
+  fi
+  if [ "$yes" -ne 1 ]; then
+    say "DRYRUN would-delete-branch: $target"
+    return
+  fi
+  local err
+  if err=$(git -C "$repo" branch -d "$branch" 2>&1); then
+    say "removed: $target ($err)"
+  else
+    say "FAILED($err): $target"
+  fi
+}
+
+apply_cargo_clean() {
+  local target="$1" yes="$2" manifest_dir newest now age
+  if [ "$(basename "$target")" != "target" ]; then
+    say "SKIP(not named 'target', refusing): $target"
+    return
+  fi
+  manifest_dir=$(dirname "$target")
+  if [ ! -f "$manifest_dir/Cargo.toml" ]; then
+    say "SKIP(no sibling Cargo.toml anymore): $target"
+    return
+  fi
+  if [ ! -d "$target" ]; then
+    say "SKIP(gone): $target"
+    return
+  fi
+  newest=$(find "$target" -xdev -type f -printf '%T@\n' 2>/dev/null | sort -rn | head -1)
+  newest=${newest%%.*}
+  now=$(date +%s)
+  if [ -n "$newest" ]; then
+    age=$(((now - newest) / 3600))
+    if [ "$age" -lt "$RA_HOURS" ]; then
+      say "SKIP(active again, ${age}h since last write): $target"
+      return
+    fi
+  fi
+  if [ "$yes" -ne 1 ]; then
+    say "DRYRUN would-cargo-clean: $target"
+    return
+  fi
+  local err
+  if err=$(cd "$manifest_dir" && cargo clean 2>&1); then
+    say "removed: $target ($(printf '%s' "$err" | tr '\n' ' '))"
+  else
+    say "FAILED($err): $target"
+  fi
+}
+
+cmd_apply() {
+  local yes=0 candidates_file=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --yes)
+      yes=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      candidates_file="$1"
+      shift
+      ;;
+    esac
+  done
+  if [ -z "$candidates_file" ] || [ ! -f "$candidates_file" ]; then
+    echo "error: apply needs a candidates file (from 'repo-audit scan')" >&2
+    usage >&2
+    exit 1
+  fi
+  RA_HOURS="${RA_HOURS:-$DEFAULT_HOURS}"
+
+  local action target reason
+  while IFS=$'\t' read -r action target reason; do
+    case "$action" in
+    '' | '#'*) continue ;;
+    esac
+    case "$action" in
+    worktree-remove) apply_worktree_remove "$target" "$yes" ;;
+    branch-delete) apply_branch_delete "$target" "$yes" ;;
+    cargo-clean) apply_cargo_clean "$target" "$yes" ;;
+    *) say "SKIP(unknown action '$action'): $target" ;;
+    esac
+  done <"$candidates_file"
+
+  if [ "$yes" -ne 1 ]; then
+    say ""
+    say "(dry run -- rerun with --yes to actually apply)"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+case "${1:-}" in
+scan)
+  shift
+  cmd_scan "$@"
+  ;;
+apply)
+  shift
+  cmd_apply "$@"
+  ;;
+-h | --help | '')
+  usage
+  ;;
+*)
+  echo "error: unknown subcommand '$1'" >&2
+  usage >&2
+  exit 1
+  ;;
+esac

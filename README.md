@@ -38,6 +38,29 @@ Override the per-user location with `PREFIX`, e.g. `make install PREFIX=~/bin`.
 reports what each node actually has. The hard-quota table is published to the
 shared mount with `sudo make publish-quota-file`.
 
+`make install-repo-audit` installs `repo-audit` and its Slurm driver
+`repo-audit-slurm`. `repo-audit` is a read-only-by-default auditor for git
+worktree/branch/cargo-`target/` cleanup candidates across one or more
+directory trees (`repo-audit scan ~/devel ~/projects`), plus an `apply` mode
+that re-verifies each candidate against live state before acting and only
+ever prints what it would do unless given `--yes`. It never touches a
+worktree containing pod5/fast5/bam/cram/npz/npy/parquet/fastq/arrow files —
+those are always left for a human to look at.
+
+A scan over a large tree is real CPU and I/O, not something to run in an
+interactive shell. `repo-audit-slurm` submits `scan` as its own sbatch job
+and returns immediately with a job id:
+
+```bash
+repo-audit-slurm ~/devel/rnabioco
+```
+
+Report and candidates land under `~/scratch/repo-audit/<timestamp>/` by
+default (`--out DIR` to override); `--cpus`/`--mem`/`--walltime`/`--partition`
+size the allocation, and anything else is passed straight through to
+`repo-audit scan` (`--hours`, etc.). Only `scan` is ever queued this way —
+`apply` acts on live git state and stays a foreground, attended command.
+
 ### `sinteractive` lives elsewhere
 
 `sinteractive` is no longer part of this repository. It is maintained at

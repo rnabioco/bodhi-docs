@@ -1,0 +1,148 @@
+#!/bin/bash
+# -*- coding: utf-8 -*-
+#
+# repo-audit-slurm — submit `repo-audit scan` as a Slurm batch job instead of
+# running it in an interactive/orchestration shell.
+#
+# A scan walks every git repo under one or more directory trees -- git
+# status, merge-base ancestry, and a full file listing per worktree -- over
+# a shared filesystem. That's real CPU (each --jobs worker is its own git
+# process) and real I/O, and not something to run inside a shared
+# interactive session: it would compete with whatever else is using that
+# allocation, and die with it if the session ends first. This submits the
+# scan as its own sbatch job, sized to --jobs, and returns immediately with
+# a job id.
+#
+# Usage:
+#   repo-audit-slurm [--partition NAME] [--cpus N] [--mem SIZE]
+#                     [--walltime HH:MM:SS] [--out DIR]
+#                     ROOT... [repo-audit scan OPTIONS...]
+#
+# Everything that isn't one of this wrapper's own flags is passed straight
+# through to `repo-audit scan` -- ROOTs, --hours, --candidates, etc. Their
+# flag names don't overlap with this wrapper's, so order doesn't matter.
+# --jobs defaults to --cpus; pass your own --jobs in the passthrough args to
+# override it.
+#
+# Only `scan` is ever submitted this way -- it's read-only. `apply` acts on
+# live git state (worktree remove, branch delete, cargo clean) and stays a
+# deliberate, attended, foreground command: never queued unattended.
+#
+# Output: report.txt and candidates.tsv land under --out (default
+# ~/scratch/repo-audit/<timestamp>/), alongside the job's own Slurm log.
+# Check on it with `squeue --me -o "%.10i %.20j %.10M %k"` rather than
+# polling from here.
+
+set -uo pipefail
+
+SELF=$(basename "$0")
+SELF_DIR=$(cd "$(dirname "$0")" && pwd -P)
+REPO_AUDIT="${REPO_AUDIT:-$SELF_DIR/repo-audit}"
+
+DEFAULT_CPUS=8
+DEFAULT_MEM=4G
+DEFAULT_WALLTIME=04:00:00
+
+usage() {
+  cat <<EOF
+usage: $SELF [--partition NAME] [--cpus N] [--mem SIZE] [--walltime HH:MM:SS]
+             [--out DIR] ROOT... [repo-audit scan OPTIONS...]
+
+Submits 'repo-audit scan' as its own sbatch job (default partition, $DEFAULT_CPUS
+cpus, $DEFAULT_MEM, $DEFAULT_WALLTIME) instead of running it interactively. Prints the
+job id and where its report/candidates will land. Only scan is ever
+submitted this way; 'apply' stays a foreground, attended command -- never
+queue it.
+EOF
+}
+
+command -v sbatch >/dev/null 2>&1 || {
+  echo "error: sbatch not found -- run this on a Slurm login/head node" >&2
+  exit 1
+}
+[ -x "$REPO_AUDIT" ] || {
+  echo "error: repo-audit not found or not executable at $REPO_AUDIT (set \$REPO_AUDIT to override)" >&2
+  exit 1
+}
+
+partition=""
+cpus="$DEFAULT_CPUS"
+mem="$DEFAULT_MEM"
+walltime="$DEFAULT_WALLTIME"
+out=""
+scan_args=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --partition)
+    partition="$2"
+    shift 2
+    ;;
+  --cpus)
+    cpus="$2"
+    shift 2
+    ;;
+  --mem)
+    mem="$2"
+    shift 2
+    ;;
+  --walltime)
+    walltime="$2"
+    shift 2
+    ;;
+  --out)
+    out="$2"
+    shift 2
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    scan_args+=("$1")
+    shift
+    ;;
+  esac
+done
+
+if [ "${#scan_args[@]}" -eq 0 ]; then
+  echo "error: need at least one ROOT" >&2
+  usage >&2
+  exit 1
+fi
+
+out="${out:-$HOME/scratch/repo-audit/$(date +%Y%m%dT%H%M%S)}"
+mkdir -p "$out"
+
+tmp_script=$(mktemp "${TMPDIR:-/tmp}/repo-audit-slurm.XXXXXX.sbatch")
+trap 'rm -f "$tmp_script"' EXIT
+
+{
+  printf '#!/bin/bash\n'
+  printf '#SBATCH --job-name=repo-audit\n'
+  printf '#SBATCH --comment=repo-audit\n'
+  printf '#SBATCH --cpus-per-task=%s\n' "$cpus"
+  printf '#SBATCH --mem=%s\n' "$mem"
+  printf '#SBATCH --time=%s\n' "$walltime"
+  [ -n "$partition" ] && printf '#SBATCH --partition=%s\n' "$partition"
+  printf '#SBATCH --output=%s/slurm-%%j.log\n' "$out"
+  printf 'set -uo pipefail\n'
+  printf 'exec %q scan --jobs %q --report %q --candidates %q' \
+    "$REPO_AUDIT" "$cpus" "$out/report.txt" "$out/candidates.tsv"
+  for a in "${scan_args[@]}"; do
+    printf ' %q' "$a"
+  done
+  printf '\n'
+} >"$tmp_script"
+
+jobid=$(sbatch --parsable "$tmp_script") || {
+  echo "error: sbatch submission failed" >&2
+  exit 1
+}
+
+say() { printf '%s\n' "$*"; }
+say "submitted repo-audit scan as job $jobid"
+say "  report:     $out/report.txt"
+say "  candidates: $out/candidates.tsv"
+say "  log:        $out/slurm-$jobid.log"
+say "watch with: squeue --me -o '%.10i %.20j %.10M %k' | grep $jobid"
